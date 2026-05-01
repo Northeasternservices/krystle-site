@@ -10,7 +10,7 @@ function LoginScreen({ onLogin }) {
     e.preventDefault();
     setLoading(true);
     await new Promise(r => setTimeout(r, 400));
-    if (user === 'Krystle831' && pass === 'Junior0816') {
+    if (user === 'KRYJOH83' && pass === '143olivia') {
       sessionStorage.setItem('kc_auth', '1');
       onLogin();
     } else {
