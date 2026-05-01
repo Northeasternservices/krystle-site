@@ -75,14 +75,13 @@ function LoginScreen({ onLogin }) {
 function App() {
   const { useState, useCallback } = React;
   const [authed, setAuthed] = useState(() => sessionStorage.getItem('kc_auth') === '1');
-
-  if (!authed) return <LoginScreen onLogin={() => setAuthed(true)} />;
-
   const [view, setView] = useState('dashboard');
   const [data, setData] = useState(() => Store.get());
   const [apptModal, setApptModal] = useState({ open: false, appt: null });
 
   const refresh = useCallback(() => setData(Store.get()), []);
+
+  if (!authed) return <LoginScreen onLogin={() => setAuthed(true)} />;
 
   const openNewAppt = (defaults = {}) => {
     setApptModal({ open: true, appt: { ...defaults } });
