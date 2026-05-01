@@ -17,3 +17,5 @@ jobs:
           apiToken: ${{ secrets.CF_API_TOKEN }}
           accountId: b8bbdde94408f2af401128df47ec0fc2
           command: pages deploy . --project-name=krystle --branch=main
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
