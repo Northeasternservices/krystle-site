@@ -697,14 +697,14 @@ const NAV_ITEMS = [
 
 function Sidebar({ view, setView }) {
   return (
-    <div style={{
+    <div data-sidebar style={{
       width: 220, flexShrink: 0, background: UI_COLORS.bg2,
       borderRight: `1px solid ${UI_COLORS.border}`,
       display: 'flex', flexDirection: 'column',
       height: '100vh', position: 'sticky', top: 0,
     }}>
       {/* Logo */}
-      <div style={{ padding: '28px 24px 24px', borderBottom: `1px solid ${UI_COLORS.border}` }}>
+      <div data-sidebar-logo style={{ padding: '28px 24px 24px', borderBottom: `1px solid ${UI_COLORS.border}` }}>
         <div style={{ fontFamily: UI_COLORS.serif, fontSize: 20, letterSpacing: '0.04em' }}>
           Krystle <em style={{ fontStyle: 'italic', color: UI_COLORS.pink }}>&amp; Co</em>
         </div>
@@ -714,7 +714,7 @@ function Sidebar({ view, setView }) {
       </div>
 
       {/* Nav */}
-      <nav style={{ padding: '16px 12px', flex: 1 }}>
+      <nav data-sidebar-nav style={{ padding: '16px 12px', flex: 1 }}>
         {NAV_ITEMS.map(item => {
           const active = view === item.id;
           return (
@@ -738,7 +738,7 @@ function Sidebar({ view, setView }) {
       </nav>
 
       {/* Bottom */}
-      <div style={{ padding: '16px 24px', borderTop: `1px solid ${UI_COLORS.border}`, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div data-sidebar-bottom style={{ padding: '16px 24px', borderTop: `1px solid ${UI_COLORS.border}`, display: 'flex', flexDirection: 'column', gap: 10 }}>
         <a href="../index.html" style={{
           display: 'flex', alignItems: 'center', gap: 8,
           fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase',
