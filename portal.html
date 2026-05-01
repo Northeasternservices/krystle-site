@@ -214,7 +214,7 @@ function LoginScreen({ onLogin }) {
 
   return (
     <div style={{ minHeight:'100vh', background:C.bg }}>
-      <Nav client={null} onSignOut={() => {}} />
+      {/* Nav hidden on login screen */}
       <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:'80px 24px' }}>
         <div style={{ width:'100%', maxWidth:400 }}>
           <div style={{ position:'fixed', width:400, height:400, borderRadius:'50%', background:`radial-gradient(circle, oklch(0.52 0.18 352 / 0.1) 0%, transparent 70%)`, top:'50%', left:'50%', transform:'translate(-50%,-50%)', pointerEvents:'none' }} />
