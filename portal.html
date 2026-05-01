@@ -17,7 +17,7 @@
 <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
-<script src="admin/store.js?v=8"></script>
+<script src="admin/store.js?v=11"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -175,335 +175,212 @@ function Nav({ client, onSignOut }) {
 
 // ── Login Screen ──────────────────────────────────────────────────────────────
 function LoginScreen({ onLogin }) {
-  const [email, setEmail] = useState(() => {
-    const params = new URLSearchParams(window.location.search);
-    return params.get('email') || '';
-  });
-  const [password, setPassword] = useState('');
-  const [rememberMe, setRememberMe] = useState(false);
+  const [email, setEmail] = useState(() => new URLSearchParams(window.location.search).get('email') || '');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [mode, setMode] = useState('login');
+  const [mode, setMode] = useState('main'); // 'main' | 'magic-sent' | 'magic-code' | 'password'
+  const [magicCode, setMagicCode] = useState('');
+  const [password, setPassword] = useState('');
+  const [passkeySupported] = useState(() => !!(window.PublicKeyCredential && navigator.credentials));
+  const fromBooking = new URLSearchParams(window.location.search).get('email');
 
   const inputStyle = {
     background:C.bg3, border:`1px solid ${C.border}`, color:C.fg,
-    fontFamily:C.sans, fontSize:15, fontWeight:300,
-    padding:'12px 16px', width:'100%',
+    fontFamily:C.sans, fontSize:15, fontWeight:300, padding:'12px 16px', width:'100%',
   };
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    if (!email || !password) return;
-    setLoading(true);
-    setError('');
-    await new Promise(r => setTimeout(r, 500));
-    const clients = Store.clients.all();
-    const client = clients.find(c => c.email?.toLowerCase() === email.toLowerCase());
-    if (!client) { setError('No account found with that email. Try booking an appointment first.'); setLoading(false); return; }
-    if (!client.passwordHash) { setError('No password set for this account. Contact Krystle to set one up — she can reset it from her admin panel.'); setLoading(false); return; }
-    const valid = await Auth.verifyPassword(password, client.passwordHash);
-    if (!valid) { setError('Incorrect password.'); setLoading(false); return; }
-    if (rememberMe) localStorage.setItem('kc_client_remember', client.id);
-    Auth.setSession(client.id);
-    onLogin(client, 'email');
+  // ── Passkey login ──
+  const handlePasskey = async () => {
+    if (!email.trim()) { setError('Enter your email first.'); return; }
+    setLoading(true); setError('');
+    try {
+      // 1. Get challenge from server
+      const optRes = await fetch('https://api.krystleandco.com/api/auth/passkey/login-options', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      if (!optRes.ok) throw new Error('No passkey found for this email. Try a magic link instead.');
+      const options = await optRes.json();
+
+      // 2. Decode base64url challenge
+      options.challenge = Uint8Array.from(atob(options.challenge.replace(/-/g,'+').replace(/_/g,'/')), c => c.charCodeAt(0));
+      if (options.allowCredentials) {
+        options.allowCredentials = options.allowCredentials.map(c => ({
+          ...c,
+          id: Uint8Array.from(atob(c.id.replace(/-/g,'+').replace(/_/g,'/')), ch => ch.charCodeAt(0)),
+        }));
+      }
+
+      // 3. Prompt Face ID / fingerprint
+      const cred = await navigator.credentials.get({ publicKey: options });
+
+      // 4. Send assertion to server
+      const verRes = await fetch('https://api.krystleandco.com/api/auth/passkey/login-verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          id: cred.id,
+          rawId: btoa(String.fromCharCode(...new Uint8Array(cred.rawId))),
+          response: {
+            authenticatorData: btoa(String.fromCharCode(...new Uint8Array(cred.response.authenticatorData))),
+            clientDataJSON: btoa(String.fromCharCode(...new Uint8Array(cred.response.clientDataJSON))),
+            signature: btoa(String.fromCharCode(...new Uint8Array(cred.response.signature))),
+          },
+          type: cred.type,
+        }),
+      });
+      if (!verRes.ok) throw new Error('Passkey verification failed.');
+      const { clientId, token } = await verRes.json();
+
+      // 5. Log in locally
+      const client = Store.clients.all().find(c => c.id === clientId || c.email?.toLowerCase() === email.toLowerCase());
+      if (client) { Auth.setSession(client.id); onLogin(client, 'passkey'); }
+      else throw new Error('Account not found locally.');
+    } catch (e) {
+      if (e.name === 'NotAllowedError') setError('Passkey cancelled. Try a magic link instead.');
+      else setError(e.message || 'Passkey sign-in failed.');
+    }
     setLoading(false);
   };
 
+  // ── Magic link ──
+  const handleMagicLink = async () => {
+    if (!email.trim()) { setError('Enter your email first.'); return; }
+    setLoading(true); setError('');
+    try {
+      const res = await fetch('https://api.krystleandco.com/api/auth/magic-link/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, redirectUrl: window.location.href }),
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || 'Could not send magic link.');
+      }
+      setMode('magic-sent');
+    } catch (e) {
+      setError(e.message || 'Could not send magic link. Try the password option.');
+    }
+    setLoading(false);
+  };
 
-  const fromBooking = new URLSearchParams(window.location.search).get('email');
+  // ── Magic code verify (user copies 6-digit code from email) ──
+  const handleMagicCode = async () => {
+    if (!magicCode.trim()) return;
+    setLoading(true); setError('');
+    try {
+      const res = await fetch('https://api.krystleandco.com/api/auth/magic-link/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, code: magicCode }),
+      });
+      if (!res.ok) throw new Error('Invalid or expired code.');
+      const { clientId } = await res.json();
+      const client = Store.clients.all().find(c => c.id === clientId || c.email?.toLowerCase() === email.toLowerCase());
+      if (client) { Auth.setSession(client.id); onLogin(client, 'magic'); }
+      else throw new Error('Account not found.');
+    } catch (e) {
+      setError(e.message || 'Code verification failed.');
+    }
+    setLoading(false);
+  };
+
+  // ── Password fallback ──
+  const handlePassword = async (e) => {
+    e.preventDefault();
+    if (!email || !password) return;
+    setLoading(true); setError('');
+    await new Promise(r => setTimeout(r, 400));
+    const client = Store.clients.all().find(c => c.email?.toLowerCase() === email.toLowerCase());
+    if (!client) { setError('No account found. Book an appointment first.'); setLoading(false); return; }
+    if (!client.passwordHash) { setError('No password on this account — use a magic link instead.'); setLoading(false); return; }
+    const valid = await Auth.verifyPassword(password, client.passwordHash);
+    if (!valid) { setError('Incorrect password.'); setLoading(false); return; }
+    Auth.setSession(client.id);
+    onLogin(client, 'password');
+    setLoading(false);
+  };
+
+  // ── Check for magic link token in URL on load ──
+  useEffect(() => {
+    const token = new URLSearchParams(window.location.search).get('mltoken');
+    if (!token) return;
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await fetch(`https://api.krystleandco.com/api/auth/magic-link/verify?token=***
+        if (!res.ok) throw new Error('Link expired or invalid.');
+        const { clientId, email: verEmail } = await res.json();
+        const client = Store.clients.all().find(c => c.id === clientId || c.email?.toLowerCase() === verEmail?.toLowerCase());
+        if (client) { Auth.setSession(client.id); onLogin(client, 'magic'); }
+        else throw new Error('Account not found.');
+      } catch (e) {
+        setError(e.message);
+      }
+      setLoading(false);
+    })();
+  }, []);
 
   return (
     <div style={{ minHeight:'100vh', background:C.bg }}>
-      {/* Nav hidden on login screen */}
+      <Nav client={null} onSignOut={() => {}} />
       <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:'80px 24px' }}>
-        <div style={{ width:'100%', maxWidth:400 }}>
-          <div style={{ position:'fixed', width:400, height:400, borderRadius:'50%', background:`radial-gradient(circle, oklch(0.52 0.18 352 / 0.1) 0%, transparent 70%)`, top:'50%', left:'50%', transform:'translate(-50%,-50%)', pointerEvents:'none' }} />
+        <div style={{ width:'100%', maxWidth:420, position:'relative' }}>
+          <div style={{ position:'fixed', width:500, height:500, borderRadius:'50%', background:`radial-gradient(circle, oklch(0.52 0.18 352 / 0.08) 0%, transparent 70%)`, top:'50%', left:'50%', transform:'translate(-50%,-50%)', pointerEvents:'none' }} />
 
           {fromBooking && (
-            <div style={{ background:'oklch(0.72 0.16 145 / 0.12)', border:'1px solid oklch(0.72 0.16 145 / 0.3)', padding:'12px 16px', marginBottom:20, fontSize:12, color:'oklch(0.72 0.16 145)', lineHeight:1.7, position:'relative' }}>
-              ✓ Your account has been created! Sign in with the email and password you used when booking.
+            <div style={{ background:'oklch(0.72 0.16 145 / 0.12)', border:'1px solid oklch(0.72 0.16 145 / 0.3)', padding:'12px 16px', marginBottom:20, fontSize:12, color:'oklch(0.72 0.16 145)', lineHeight:1.7 }}>
+              ✓ Your account has been created! Sign in below to view your booking.
             </div>
           )}
 
-          <div style={{ textAlign:'center', marginBottom:40, position:'relative' }}>
+          <div style={{ textAlign:'center', marginBottom:36, position:'relative' }}>
             <h1 style={{ fontFamily:C.serif, fontSize:36, fontWeight:300, marginBottom:8 }}>
               My <em style={{ fontStyle:'italic', color:C.pink }}>Account</em>
             </h1>
-            <p style={{ fontSize:12, color:C.fgMuted, letterSpacing:'0.1em' }}>View your appointments, history &amp; receipts</p>
+            <p style={{ fontSize:12, color:C.fgMuted, letterSpacing:'0.08em' }}>Appointments, history &amp; receipts</p>
           </div>
 
           <div style={{ background:C.bg2, border:`1px solid ${C.border}`, padding:32, position:'relative' }}>
-            {mode === 'login' ? (
-              <form onSubmit={handleLogin} style={{ display:'flex', flexDirection:'column', gap:16 }}>
+
+            {/* ── MAIN screen ── */}
+            {mode === 'main' && (
+              <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
                 <div>
-                  <label style={{ fontSize:10, letterSpacing:'0.2em', textTransform:'uppercase', color:C.fgMuted, display:'block', marginBottom:8 }}>Email</label>
-                  <input type="email" value={email} onChange={e => { setEmail(e.target.value); setError(''); }} placeholder="you@email.com" style={inputStyle} />
-                </div>
-                <div>
-                  <label style={{ fontSize:10, letterSpacing:'0.2em', textTransform:'uppercase', color:C.fgMuted, display:'block', marginBottom:8 }}>Password</label>
-                  <input type="password" value={password} onChange={e => { setPassword(e.target.value); setError(''); }} placeholder="Your password" style={inputStyle} />
+                  <label style={{ fontSize:10, letterSpacing:'0.2em', textTransform:'uppercase', color:C.fgMuted, display:'block', marginBottom:8 }}>Your Email</label>
+                  <input type="email" value={email} onChange={e => { setEmail(e.target.value); setError(''); }}
+                    placeholder="you@email.com" style={inputStyle} autoFocus />
                 </div>
 
                 {error && <div style={{ fontSize:12, color:C.red, padding:'10px 14px', background:C.red+'12', border:`1px solid ${C.red}33` }}>{error}</div>}
 
-                {/* Remember me */}
-                <label style={{ display:'flex', alignItems:'center', gap:10, cursor:'pointer' }}>
-                  <div onClick={() => setRememberMe(r => !r)}
-                    style={{ width:18, height:18, border:`1px solid ${rememberMe ? C.pink : C.border}`, background: rememberMe ? C.pink : 'transparent', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, transition:'all 0.2s' }}>
-                    {rememberMe && <span style={{ color:C.bg, fontSize:11, fontWeight:700 }}>✓</span>}
-                  </div>
-                  <span style={{ fontSize:12, color:C.fgMuted }}>Remember me on this device</span>
-                </label>
-
-                <button type="submit" disabled={loading} style={{
-                  marginTop:4, padding:'14px', background:C.pink, border:'none', color:C.bg,
-                  fontFamily:C.sans, fontSize:11, letterSpacing:'0.2em', textTransform:'uppercase',
-                  cursor: loading ? 'wait' : 'pointer', transition:'all 0.2s',
-                }}>{loading ? 'Signing in…' : 'Sign In'}</button>
-
-                <button type="button" onClick={() => setMode('forgot')} style={{ background:'none', border:'none', color:C.fgMuted, fontSize:11, letterSpacing:'0.1em', cursor:'pointer', textAlign:'center' }}>
-                  Forgot password?
-                </button>
-              </form>
-            ) : (
-              <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
-                <div style={{ background:C.bg3, padding:'16px', fontSize:13, color:C.fgMuted, lineHeight:1.8 }}>
-                  <strong style={{ color:C.fg, display:'block', marginBottom:8 }}>To reset your password:</strong>
-                  <div>Contact Krystle — she can set a new password for you from her admin panel, then email or text it to you.</div>
-                </div>
-                <div style={{ display:'flex', gap:8 }}>
-                  <button onClick={() => setMode('login')}
-                    style={{ flex:1, padding:'11px', background:'transparent', border:`1px solid ${C.border}`, color:C.fgMuted, fontFamily:C.sans, fontSize:10, letterSpacing:'0.15em', textTransform:'uppercase', cursor:'pointer' }}>
-                    ← Back to Sign In
+                {/* Passkey — primary */}
+                {passkeySupported && (
+                  <button onClick={handlePasskey} disabled={loading || !email.trim()} style={{
+                    display:'flex', alignItems:'center', justifyContent:'center', gap:10,
+                    padding:'14px', background: email.trim() ? C.pink : C.bg3,
+                    border:`1px solid ${email.trim() ? 'transparent' : C.border}`,
+                    color: email.trim() ? C.bg : C.fgMuted,
+                    fontFamily:C.sans, fontSize:11, letterSpacing:'0.18em', textTransform:'uppercase',
+                    cursor: email.trim() ? 'pointer' : 'default', transition:'all 0.2s',
+                  }}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                    </svg>
+                    {loading ? 'Verifying…' : 'Sign in with Face ID / Fingerprint'}
                   </button>
-                </div>
-                <a href="index.html#booking" style={{ fontSize:11, color:C.fgMuted, textAlign:'center', textDecoration:'none' }}>
-                  Or book a new appointment as a new client
-                </a>
-              </div>
-            )}
-          </div>
+                )}
 
-          <p style={{ textAlign:'center', marginTop:24, fontSize:12, color:C.fgDim }}>
-            Don't have an account? <a href="booking.html" style={{ color:C.pink }}>Book an appointment</a> to create one.
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
+                {/* Divider */}
+                <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                  <div style={{ flex:1, height:1, background:C.border }} />
+                  <span style={{ fontSize:10, 
 
-// ── Receipt ───────────────────────────────────────────────────────────────────
-function Receipt({ appt, client, onClose }) {
-  const receiptNum = `KC-${appt.id?.slice(-6).toUpperCase()}`;
-  return (
-    <div style={{ position:'fixed', inset:0, zIndex:100, background:'rgba(0,0,0,0.8)', backdropFilter:'blur(4px)', display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="receipt-card" style={{ background:C.bg2, border:`1px solid ${C.border}`, width:'100%', maxWidth:480, padding:40, position:'relative' }}>
-        {/* Header */}
-        <div style={{ textAlign:'center', marginBottom:32, paddingBottom:24, borderBottom:`1px solid ${C.border}` }}>
-          <div style={{ fontFamily:C.serif, fontSize:28, marginBottom:4 }}>
-            Krystle <em style={{ fontStyle:'italic', color:C.pink }}>&amp; Co</em>
-          </div>
-          <div style={{ fontSize:10, letterSpacing:'0.2em', color:C.fgMuted }}>ASHLAND, MA · RECEIPT</div>
-          <div style={{ marginTop:12, fontSize:11, color:C.fgMuted }}>{receiptNum}</div>
-        </div>
+... [OUTPUT TRUNCATED - 17806 chars omitted out of 67806 total] ...
 
-        <div style={{ display:'flex', flexDirection:'column', gap:14, marginBottom:28 }}>
-          {[
-            ['Client', client.name],
-            ['Service', appt.service],
-            ['Date', DateUtil.format(appt.date, 'long')],
-            ['Time', DateUtil.formatTime(appt.time)],
-            ['Duration', `${appt.duration} min`],
-          ].map(([label, val]) => (
-            <div key={label} style={{ display:'flex', justifyContent:'space-between', fontSize:13 }}>
-              <span style={{ color:C.fgMuted }}>{label}</span>
-              <span>{val}</span>
-            </div>
-          ))}
-        </div>
-
-        <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:20, marginBottom:28 }}>
-          {appt.depositAmount && (
-            <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, marginBottom:10 }}>
-              <span style={{ color:C.fgMuted }}>Deposit Paid</span>
-              <span style={{ color:C.green }}>${appt.depositAmount}</span>
-            </div>
-          )}
-          {appt.paymentStatus === 'deposit_paid' && (
-            <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, marginBottom:10 }}>
-              <span style={{ color:C.fgMuted }}>Balance Due at Appointment</span>
-              <span style={{ color:C.yellow }}>${appt.balanceDue || (appt.price - (appt.depositAmount||0))}</span>
-            </div>
-          )}
-          <div style={{ display:'flex', justifyContent:'space-between', fontSize:18, marginTop:12 }}>
-            <span>Total</span>
-            <span style={{ fontFamily:C.serif, color:appt.paymentStatus==='paid_full' ? C.green : C.fg }}>${appt.price}</span>
-          </div>
-          {appt.paymentStatus === 'paid_full' && (
-            <div style={{ textAlign:'center', marginTop:12, fontSize:11, letterSpacing:'0.2em', textTransform:'uppercase', color:C.green }}>✓ Paid in Full</div>
-          )}
-        </div>
-
-        <div style={{ textAlign:'center', fontSize:11, color:C.fgDim, lineHeight:1.8 }}>
-          Thank you for choosing Krystle &amp; Co!<br />
-          Woman Owned · Ashland, MA
-        </div>
-
-        <div className="no-print" style={{ display:'flex', gap:10, marginTop:28 }}>
-          <button onClick={() => window.print()} style={{ flex:1, padding:'12px', background:C.pink, border:'none', color:C.bg, fontFamily:C.sans, fontSize:11, letterSpacing:'0.15em', textTransform:'uppercase', cursor:'pointer' }}>
-            Print / Save PDF
-          </button>
-          <button onClick={onClose} style={{ flex:1, padding:'12px', background:'transparent', border:`1px solid ${C.border}`, color:C.fgMuted, fontFamily:C.sans, fontSize:11, letterSpacing:'0.15em', textTransform:'uppercase', cursor:'pointer' }}>
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Portal Dashboard ──────────────────────────────────────────────────────────
-function Portal({ client, onSignOut }) {
-  const [tab, setTab] = useState('upcoming');
-  const [editMode, setEditMode] = useState(false);
-  const [editForm, setEditForm] = useState({ ...client });
-  const [savingProfile, setSavingProfile] = useState(false);
-  const [receipt, setReceipt] = useState(null);
-  const [liveClient, setLiveClient] = useState(client);
-  const [waiverMode, setWaiverMode] = useState(() => Store.waivers.forClient(client.id) ? 'view' : 'edit');
-  const [wForm, setWForm] = useState(() => {
-    const existing = Store.waivers.forClient(client.id);
-    return existing || {
-      clientId: client.id,
-      contactLenses:false, eyeSurgery:false, glaucoma:false, dryEyes:false, eyeAllergy:false,
-      skinConditions:'', medications:'', previousReaction:false, previousReactionDetails:'',
-      pregnant:false, chemotherapy:false,
-      latexAllergy:false, adhesiveAllergy:false, formaldehydeAllergy:false, otherAllergies:'',
-      refundPolicyAgreed:false, consentAgreed:false, noPhotos:false,
-      signature:'', signedDate:DateUtil.today(),
-    };
-  });
-
-  const today = DateUtil.today();
-  const allAppts = Store.appointments.all().filter(a => a.clientId === client.id);
-  const upcoming = allAppts.filter(a => a.date >= today && a.status !== 'cancelled').sort((a,b) => a.date > b.date ? 1 : -1);
-  const past = allAppts.filter(a => a.date < today || a.status === 'completed').sort((a,b) => a.date > b.date ? -1 : 1);
-  const totalSpent = past.filter(a => a.status !== 'cancelled').reduce((s,a) => s + (Number(a.price)||0), 0);
-
-  const TABS = [
-    { id:'upcoming', label:'Upcoming' },
-    { id:'history', label:'History' },
-    { id:'photos', label:'My Photos' },
-    { id:'waiver', label:'Waiver' },
-    { id:'profile', label:'My Profile' },
-  ];
-
-  const statusColor = (s) => s==='confirmed' ? C.green : s==='pending' ? C.yellow : C.fgMuted;
-
-  const saveProfile = async () => {
-    setSavingProfile(true);
-    // If new password provided, hash it
-    let updatedClient = { ...liveClient, ...editForm };
-    if (editForm.newPassword) {
-      updatedClient.passwordHash = await Auth.hashPassword(editForm.newPassword);
-    }
-    delete updatedClient.newPassword;
-    delete updatedClient.confirmNewPassword;
-    Store.clients.save(updatedClient);
-    setLiveClient(updatedClient);
-    setEditMode(false);
-    setSavingProfile(false);
-  };
-
-  const set = (k,v) => setEditForm(f => ({...f,[k]:v}));
-
-  const inputStyle = { background:C.bg3, border:`1px solid ${C.border}`, color:C.fg, fontFamily:C.sans, fontSize:14, fontWeight:300, padding:'10px 14px', width:'100%', outline:'none' };
-  const labelStyle = { fontSize:10, letterSpacing:'0.18em', textTransform:'uppercase', color:C.fgMuted, display:'block', marginBottom:7 };
-
-  return (
-    <div style={{ minHeight:'100vh', background:C.bg }}>
-      <Nav client={liveClient} onSignOut={onSignOut} />
-
-      <div style={{ maxWidth:800, margin:'0 auto', padding:'48px 24px' }}>
-        {/* Welcome */}
-        <div style={{ display:'flex', alignItems:'center', gap:20, marginBottom:36 }}>
-          <div style={{ width:64, height:64, borderRadius:'50%', overflow:'hidden', background:C.bg2, border:`1px solid ${C.border}`, flexShrink:0 }}>
-            {liveClient.profilePhoto
-              ? <img src={liveClient.profilePhoto} alt="Profile" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
-              : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:C.serif, fontSize:28, color:C.pink }}>
-                  {liveClient.name?.charAt(0)}
-                </div>
-            }
-          </div>
-          <div>
-            <div style={{ fontSize:10, letterSpacing:'0.3em', textTransform:'uppercase', color:C.pink, marginBottom:6 }}>Welcome back</div>
-            <h1 style={{ fontFamily:C.serif, fontSize:42, fontWeight:300, lineHeight:1 }}>
-              {liveClient.name.split(' ')[0]}<em style={{ fontStyle:'italic', color:C.pink }}>.</em>
-            </h1>
-          </div>
-        </div>
-
-        {/* Stats */}
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginBottom:36 }}>
-          {[
-            ['Upcoming', upcoming.length, 'appointments'],
-            ['Past Visits', past.length, 'completed'],
-            ['My Photos', Store.photos.forClient(client.id).length, 'from Krystle'],
-            ['Total Spent', `$${totalSpent}`, 'lifetime'],
-          ].map(([label, val, sub]) => (
-            <div key={label} style={{ background:C.bg2, border:`1px solid ${C.border}`, padding:'20px 24px' }}>
-              <div style={{ fontSize:9, letterSpacing:'0.25em', textTransform:'uppercase', color:C.fgMuted, marginBottom:8 }}>{label}</div>
-              <div style={{ fontFamily:C.serif, fontSize:36, fontWeight:300, color:C.pink, lineHeight:1 }}>{val}</div>
-              <div style={{ fontSize:11, color:C.fgMuted, marginTop:6 }}>{sub}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* No password banner */}
-        {!liveClient.passwordHash && (
-          <div style={{ background: C.yellow+'12', border:`1px solid ${C.yellow}33`, padding:'14px 20px', marginBottom:28, display:'flex', alignItems:'center', justifyContent:'space-between', gap:16 }}>
-            <div>
-              <div style={{ fontSize:12, color:C.yellow, marginBottom:3 }}>🔑 No password set on your account</div>
-              <div style={{ fontSize:11, color:C.fgMuted }}>Set a password to make signing in easier next time.</div>
-            </div>
-            <button onClick={() => setTab('profile')} style={{ flexShrink:0, padding:'8px 16px', background:'transparent', border:`1px solid ${C.yellow}55`, color:C.yellow, fontFamily:C.sans, fontSize:10, letterSpacing:'0.15em', textTransform:'uppercase', cursor:'pointer' }}>Set Password →</button>
-          </div>
-        )}
-
-        {/* No waiver banner */}
-        {!Store.waivers.forClient(liveClient.id) && (
-          <div style={{ background: C.pink+'0d', border:`1px solid ${C.pink}33`, padding:'14px 20px', marginBottom:28, display:'flex', alignItems:'center', justifyContent:'space-between', gap:16 }}>
-            <div>
-              <div style={{ fontSize:12, color:C.pink, marginBottom:3 }}>📋 Waiver &amp; medical history not on file</div>
-              <div style={{ fontSize:11, color:C.fgMuted }}>Complete your client waiver before your next appointment.</div>
-            </div>
-            <button onClick={() => setTab('waiver')} style={{ flexShrink:0, padding:'8px 16px', background:C.pink, border:'none', color:C.bg, fontFamily:C.sans, fontSize:10, letterSpacing:'0.15em', textTransform:'uppercase', cursor:'pointer' }}>Complete Now →</button>
-          </div>
-        )}
-
-        {/* Tabs */}
-        <div style={{ display:'flex', borderBottom:`1px solid ${C.border}`, marginBottom:28 }}>
-          {TABS.map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)} style={{
-              padding:'10px 24px', background:'none', border:'none',
-              borderBottom: tab===t.id ? `2px solid ${C.pink}` : '2px solid transparent',
-              color: tab===t.id ? C.pink : C.fgMuted,
-              fontFamily:C.sans, fontSize:11, letterSpacing:'0.12em', textTransform:'uppercase',
-              cursor:'pointer', marginBottom:-1,
-            }}>{t.label}</button>
-          ))}
-        </div>
-
-        {/* Upcoming */}
-        {tab === 'upcoming' && (
-          <div>
-            {upcoming.length === 0 && (
-              <div style={{ textAlign:'center', padding:'48px', color:C.fgMuted }}>
-                <p style={{ marginBottom:20 }}>No upcoming appointments</p>
-                <a href="booking.html" style={{ display:'inline-block', padding:'12px 32px', background:C.pink, color:C.bg, fontFamily:C.sans, fontSize:11, letterSpacing:'0.2em', textTransform:'uppercase', textDecoration:'none' }}>
-                  Book an Appointment
+  Book an Appointment
                 </a>
               </div>
             )}
