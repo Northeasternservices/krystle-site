@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="KC Admin">
+  <link rel="apple-touch-icon" href="../icons/icon-192.png">
+  <meta name="theme-color" content="#0c0a0b">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Krystle & Co — Admin</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230c0a0b'/%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-family='Georgia%2C serif' font-size='26' font-style='italic' fill='oklch(0.72 0.14 352)'%3EKC%3C/text%3E%3C/svg%3E">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=Jost:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="store.js?v=10"></script>
+<script type="text/babel" src="ui.jsx?v=23"></script>
+<script type="text/babel" src="dashboard.jsx?v=2"></script>
+<script type="text/babel" src="calendar.jsx?v=3"></script>
+<script type="text/babel" src="clients.jsx?v=5"></script>
+<script type="text/babel" src="pricing.jsx?v=3"></script>
+<script type="text/babel" src="messages.jsx?v=5"></script>
+<script type="text/babel" src="finance.jsx?v=2"></script>
+<script type="text/babel" src="gallery.jsx?v=3"></script>
+<script type="text/babel" src="waivers.jsx?v=1"></script>
+<script type="text/babel" src="stripe.jsx?v=5"></script>
+<script type="text/babel" src="main.jsx?v=3"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body, #root { height: 100%; }
+  body { background: #0d0b0c; color: #f0ece8; overflow: hidden; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(240,236,232,0.12); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(240,236,232,0.22); }
+
+  /* Date/time inputs */
+  input[type="date"], input[type="time"] { color-scheme: dark; }
+
+  select option { background: #1e1a1c; color: #f0ece8; }
+
+  button { font-family: 'Jost', sans-serif; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js', { scope: '/admin/' }).catch(() => {});
+  });
+}
+</script>
+</body>
+</html>

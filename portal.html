@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Krystle & Co">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <meta name="theme-color" content="#0c0a0b">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My Account — Krystle & Co</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230c0a0b'/%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-family='Georgia%2C serif' font-size='32' font-style='italic' fill='oklch(0.72 0.14 352)'%3EK%3C/text%3E%3C/svg%3E">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=Jost:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="admin/store.js?v=8"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:#0c0a0b; --bg2:#120f10; --bg3:#1e1a1c;
+    --fg:#f0ece8; --fg-muted:rgba(240,236,232,0.5); --fg-dim:rgba(240,236,232,0.2);
+    --pink:oklch(0.72 0.14 352); --pink-deep:oklch(0.52 0.18 352);
+    --green:oklch(0.72 0.16 145); --red:oklch(0.65 0.18 25);
+    --border:rgba(240,236,232,0.1);
+    --serif:'Cormorant Garamond',Georgia,serif;
+    --sans:'Jost',sans-serif;
+  }
+  body { background:var(--bg); color:var(--fg); font-family:var(--sans); font-weight:300; min-height:100vh; }
+  input { outline:none; }
+  ::-webkit-scrollbar { width:4px; } ::-webkit-scrollbar-thumb { background:var(--border); }
+  @media print {
+    .no-print { display:none!important; }
+    body { background:#fff; color:#000; }
+    .receipt-card { border:1px solid #ccc!important; background:#fff!important; color:#000!important; }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useMemo } = React;
+
+const C = {
+  bg:'#0c0a0b', bg2:'#120f10', bg3:'#1e1a1c',
+  fg:'#f0ece8', fgMuted:'rgba(240,236,232,0.5)', fgDim:'rgba(240,236,232,0.2)',
+  pink:'oklch(0.72 0.14 352)', pinkDeep:'oklch(0.52 0.18 352)',
+  green:'oklch(0.72 0.16 145)', red:'oklch(0.65 0.18 25)', yellow:'oklch(0.82 0.15 85)',
+  border:'rgba(240,236,232,0.1)',
+  serif:"'Cormorant Garamond',Georgia,serif",
+  sans:"'Jost',sans-serif",
+};
+
+
+// ── Calendar helpers ──────────────────────────────────────────────────────────
+function makeGoogleCalUrl({ title, date, time, duration, location, description }) {
+  const [y,mo,d] = date.split('-').map(Number);
+  const [h,m] = time.split(':').map(Number);
+  const pad = n => String(n).padStart(2,'0');
+  const fmt = (yr,mn,dy,hr,mi) => `${yr}${pad(mn)}${pad(dy)}T${pad(hr)}${pad(mi)}00`;
+  const start = fmt(y,mo,d,h,m);
+  const endDate = new Date(y,mo-1,d,h,m+(duration||60));
+  const end = fmt(endDate.getFullYear(),endDate.getMonth()+1,endDate.getDate(),endDate.getHours(),endDate.getMinutes());
+  return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(title)}&dates=${start}/${end}&location=${encodeURIComponent(location||'Ashland, MA')}&details=${encodeURIComponent(description||'')}`;
+}
+function makeICSContent({ title, date, time, duration, location, description }) {
+  const [y,mo,d] = date.split('-').map(Number);
+  const [h,m] = time.split(':').map(Number);
+  const pad = n => String(n).padStart(2,'0');
+  const fmt = (yr,mn,dy,hr,mi) => `${yr}${pad(mn)}${pad(dy)}T${pad(hr)}${pad(mi)}00`;
+  const start = fmt(y,mo,d,h,m);
+  const endDate = new Date(y,mo-1,d,h,m+(duration||60));
+  const end = fmt(endDate.getFullYear(),endDate.getMonth()+1,endDate.getDate(),endDate.getHours(),endDate.getMinutes());
+  return `BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nDTSTART:${start}\nDTEND:${end}\nSUMMARY:${title}\nLOCATION:${location||'Ashland, MA'}\nDESCRIPTION:${description||''}\nEND:VEVENT\nEND:VCALENDAR`;
+}
+function downloadICS(content, filename) {
+  const blob = new Blob([content], { type: 'text/calendar' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = filename || 'appointment.ics';
+  a.click(); URL.revokeObjectURL(url);
+}
+function AddToCalendar({ title, date, time, duration }) {
+  const [open, setOpen] = useState(false);
+  const desc = 'Appointment at Krystle & Co · Ashland, MA · krystle@krystleandco.com';
+  const googleUrl = makeGoogleCalUrl({ title, date, time, duration, description: desc });
+  const icsContent = makeICSContent({ title, date, time, duration, description: desc });
+  return (
+    <div style={{ position:'relative', display:'inline-block' }}>
+      <button onClick={() => setOpen(o=>!o)} style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 14px', background:'transparent', border:`1px solid ${C.border}`, color:C.fgMuted, fontFamily:C.sans, fontSize:10, letterSpacing:'0.12em', textTransform:'uppercase', cursor:'pointer' }}>
+        🗓 Add to Calendar
+      </button>
+      {open && (
+        <div style={{ position:'absolute', top:'100%', left:0, marginTop:4, background:C.bg2, border:`1px solid ${C.border}`, zIndex:100, minWidth:180, boxShadow:'0 8px 24px rgba(0,0,0,0.5)' }}>
+          <a href={googleUrl} target="_blank" rel="noopener" style={{ display:'block', padding:'11px 16px', fontSize:13, color:C.fg, textDecoration:'none', borderBottom:`1px solid ${C.border}` }}
+            onMouseEnter={e=>e.currentTarget.style.background=C.bg3} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+            Google Calendar
+          </a>
+          <button onClick={()=>{downloadICS(icsContent,'krystle-appt.ics');setOpen(false);}} style={{ display:'block', width:'100%', padding:'11px 16px', fontSize:13, color:C.fg, background:'transparent', border:'none', cursor:'pointer', textAlign:'left' }}
+            onMouseEnter={e=>e.currentTarget.style.background=C.bg3} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+            Apple Calendar (.ics)
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── PWA Install Prompt ────────────────────────────────────────────────────────
+function InstallPrompt() {
+  const { useState, useEffect } = React;
+  const [prompt, setPrompt] = useState(null);
+  const [dismissed, setDismissed] = useState(() => localStorage.getItem('kc_pwa_dismissed') === '1');
+
+  useEffect(() => {
+    const handler = (e) => { e.preventDefault(); setPrompt(e); };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  if (!prompt || dismissed) return null;
+
+  const install = async () => {
+    prompt.prompt();
+    const { outcome } = await prompt.userChoice;
+    if (outcome === 'accepted') setPrompt(null);
+    else dismiss();
+  };
+
+  const dismiss = () => {
+    setDismissed(true);
+    localStorage.setItem('kc_pwa_dismissed', '1');
+  };
+
+  return (
+    <div style={{
+      position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+      zIndex: 200, background: C.bg2, border: `1px solid ${C.pink}44`,
+      padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 16,
+      boxShadow: '0 8px 32px rgba(0,0,0,0.5)', minWidth: 300, maxWidth: 400,
+    }}>
+      <img src="icons/icon-192.png" alt="App icon" style={{ width: 44, height: 44, borderRadius: 10, flexShrink: 0 }} />
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 13, marginBottom: 3 }}>Add to Home Screen</div>
+        <div style={{ fontSize: 11, color: C.fgMuted }}>Get the Krystle &amp; Co app for quick access</div>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <button onClick={install} style={{ padding: '7px 14px', background: C.pink, border: 'none', color: C.bg, fontFamily: C.sans, fontSize: 10, letterSpacing: '0.15em', textTransform: 'uppercase', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+          Add
+        </button>
+        <button onClick={dismiss} style={{ padding: '7px 14px', background: 'transparent', border: `1px solid ${C.border}`, color: C.fgMuted, fontFamily: C.sans, fontSize: 10, cursor: 'pointer' }}>
+          Not now
+        </button>
+      </div>
+    </div>
+  );
+}
+function Nav({ client, onSignOut }) {
+  return (
+    <div style={{ borderBottom:`1px solid ${C.border}`, padding:'18px 40px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+      <a href="index.html" style={{ fontFamily:C.serif, fontSize:20, color:C.fg, textDecoration:'none' }}>
+        Krystle <em style={{ fontStyle:'italic', color:C.pink }}>&amp; Co</em>
+      </a>
+      <div style={{ display:'flex', alignItems:'center', gap:24 }}>
+        {client && <span style={{ fontSize:12, color:C.fgMuted }}>{client.name}</span>}
+        <button onClick={onSignOut} style={{ background:'none', border:`1px solid ${C.border}`, color:C.fgMuted, fontFamily:C.sans, fontSize:10, letterSpacing:'0.15em', textTransform:'uppercase', padding:'8px 16px', cursor:'pointer' }}>
+          Sign Out
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Login Screen ──────────────────────────────────────────────────────────────
+function LoginScreen({ onLogin }) {
+  const [email, setEmail] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('email') || '';
+  });
+  const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState('login');
+
+  const inputStyle = {
+    background:C.bg3, border:`1px solid ${C.border}`, color:C.fg,
+    fontFamily:C.sans, fontSize:15, fontWeight:300,
+    padding:'12px 16px', width:'100%',
+  };
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    if (!email || !password) return;
+    setLoading(true);
+    setError('');
+    await new Promise(r => setTimeout(r, 500));
+    const clients = Store.clients.all();
+    const client = clients.find(c => c.email?.toLowerCase() === email.toLowerCase());
+    if (!client) { setError('No account found with that email. Try booking an appointment first.'); setLoading(false); return; }
+    if (!client.passwordHash) { setError('No password set for this account. Contact Krystle to set one up — she can reset it from her admin panel.'); setLoading(false); return; }
+    const valid = await Auth.verifyPassword(password, client.passwordHash);
+    if (!valid) { setError('Incorrect password.'); setLoading(false); return; }
+    if (rememberMe) localStorage.setItem('kc_client_remember', client.id);
+    Auth.setSession(client.id);
+    onLogin(client, 'email');
+    setLoading(false);
+  };
+
+
+  const fromBooking = new URLSearchParams(window.location.search).get('email');
+
+  return (
+    <div style={{ minHeight:'100vh', background:C.bg }}>
+      <Nav client={null} onSignOut={() => {}} />
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:'80px 24px' }}>
+        <div style={{ width:'100%', maxWidth:400 }}>
+          <div style={{ position:'fixed', width:400, height:400, borderRadius:'50%', background:`radial-gradient(circle, oklch(0.52 0.18 352 / 0.1) 0%, transparent 70%)`, top:'50%', left:'50%', transform:'translate(-50%,-50%)', pointerEvents:'none' }} />
+
+          {fromBooking && (
+            <div style={{ background:'oklch(0.72 0.16 145 / 0.12)', border:'1px solid oklch(0.72 0.16 145 / 0.3)', padding:'12px 16px', marginBottom:20, fontSize:12, color:'oklch(0.72 0.16 145)', lineHeight:1.7, position:'relative' }}>
+              ✓ Your account has been created! Sign in with the email and password you used when booking.
+            </div>
+          )}
+
+          <div style={{ textAlign:'center', marginBottom:40, position:'relative' }}>
+            <h1 style={{ fontFamily:C.serif, fontSize:36, fontWeight:300, marginBottom:8 }}>
+              My <em style={{ fontStyle:'italic', color:C.pink }}>Account</em>
+            </h1>
+            <p style={{ fontSize:12, color:C.fgMuted, letterSpacing:'0.1em' }}>View your appointments, history &amp; receipts</p>
+          </div>
+
+          <div style={{ background:C.bg2, border:`1px solid ${C.border}`, padding:32, position:'relative' }}>
+            {mode === 'login' ? (
+              <form onSubmit={handleLogin} style={{ display:'flex', flexDirection:'column', gap:16 }}>
+                <div>
+                  <label style={{ fontSize:10, letterSpacing:'0.2em', textTransform:'uppercase', color:C.fgMuted, display:'block', marginBottom:8 }}>Email</label>
+                  <input type="email" value={email} onChange={e => { setEmail(e.target.value); setError(''); }} placeholder="you@email.com" style={inputStyle} />
+                </div>
+                <div>
+                  <label style={{ fontSize:10, letterSpacing:'0.2em', textTransform:'uppercase', color:C.fgMuted, display:'block', marginBottom:8 }}>Password</label>
+                  <input type="password" value={password} onChange={e => { setPassword(e.target.value); setError(''); }} placeholder="Your password" style={inputStyle} />
+                </div>
+
+                {error && <div style={{ fontSize:12, color:C.red, padding:'10px 14px', background:C.red+'12', border:`1px solid ${C.red}33` }}>{error}</div>}
+
+                {/* Remember me */}
+                <label style={{ display:'flex', alignItems:'center', gap:10, cursor:'pointer' }}>
+                  <div onClick={() => setRememberMe(r => !r)}
+                    style={{ width:18, height:18, border:`1px solid ${rememberMe ? C.pink : C.border}`, background: rememberMe ? C.pink : 'transparent', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, transition:'all 0.2s' }}>
+                    {rememberMe && <span style={{ color:C.bg, fontSize:11, fontWeight:700 }}>✓</span>}
+                  </div>
+                  <span style={{ fontSize:12, color:C.fgMuted }}>Remember me on this device</span>
+                </label>
+
+                <button type="submit" disabled={loading} style={{
+                  marginTop:4, padding:'14px', background:C.pink, border:'none', color:C.bg,
+                  fontFamily:C.sans, fontSize:11, letterSpacing:'0.2em', textTransform:'uppercase',
+                  cursor: loading ? 'wait' : 'pointer', transition:'all 0.2s',
+                }}>{loading ? 'Signing in…' : 'Sign In'}</button>
+
+                <button type="button" onClick={() => setMode('forgot')} style={{ background:'none', border:'none', color:C.fgMuted, fontSize:11, letterSpacing:'0.1em', cursor:'pointer', textAlign:'center' }}>
+                  Forgot password?
+                </button>
+              </form>
+            ) : (
+              <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+                <div style={{ background:C.bg3, padding:'16px', fontSize:13, color:C.fgMuted, lineHeight:1.8 }}>
+                  <strong style={{ color:C.fg, display:'block', marginBottom:8 }}>To reset your password:</strong>
+                  <div>Contact Krystle — she can set a new password for you from her admin panel, then email or text it to you.</div>
+                </div>
+                <div style={{ display:'flex', gap:8 }}>
+                  <button onClick={() => setMode('login')}
+                    style={{ flex:1, padding:'11px', background:'transparent', border:`1px solid ${C.border}`, color:C.fgMuted, fontFamily:C.sans, fontSize:10, letterSpacing:'0.15em', textTransform:'uppercase', cursor:'pointer' }}>
+                    ← Back to Sign In
+                  </button>
+                </div>
+                <a href="index.html#booking" style={{ fontSize:11, color:C.fgMuted, textAlign:'center', textDecoration:'none' }}>
+                  Or book a new appointment as a new client
+                </a>
+              </div>
+            )}
+          </div>
+
+          <p style={{ textAlign:'center', marginTop:24, fontSize:12, color:C.fgDim }}>
+            Don't have an account? <a href="booking.html" style={{ color:C.pink }}>Book an appointment</a> to create one.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Receipt ───────────────────────────────────────────────────────────────────
+function Receipt({ appt, client, onClose }) {
+  const receiptNum = `KC-${appt.id?.slice(-6).toUpperCase()}`;
+  return (
+    <div style={{ position:'fixed', inset:0, zIndex:100, background:'rgba(0,0,0,0.8)', backdropFilter:'blur(4px)', display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="receipt-card" style={{ background:C.bg2, border:`1px solid ${C.border}`, width:'100%', maxWidth:480, padding:40, position:'relative' }}>
+        {/* Header */}
+        <div style={{ textAlign:'center', marginBottom:32, paddingBottom:24, borderBottom:`1px solid ${C.border}` }}>
+          <div style={{ fontFamily:C.serif, fontSize:28, marginBottom:4 }}>
+            Krystle <em style={{ fontStyle:'italic', color:C.pink }}>&amp; Co</em>
+          </div>
+          <div style={{ fontSize:10, letterSpacing:'0.2em', color:C.fgMuted }}>ASHLAND, MA · RECEIPT</div>
+          <div style={{ marginTop:12, fontSize:11, color:C.fgMuted }}>{receiptNum}</div>
+        </div>
+
+        <div style={{ display:'flex', flexDirection:'column', gap:14, marginBottom:28 }}>
+          {[
+            ['Client', client.name],
+            ['Service', appt.service],
+            ['Date', DateUtil.format(appt.date, 'long')],
+            ['Time', DateUtil.formatTime(appt.time)],
+            ['Duration', `${appt.duration} min`],
+          ].map(([label, val]) => (
+            <div key={label} style={{ display:'flex', justifyContent:'space-between', fontSize:13 }}>
+              <span style={{ color:C.fgMuted }}>{label}</span>
+              <span>{val}</span>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:20, marginBottom:28 }}>
+          {appt.depositAmount && (
+            <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, marginBottom:10 }}>
+              <span style={{ color:C.fgMuted }}>Deposit Paid</span>
+              <span style={{ color:C.green }}>${appt.depositAmount}</span>
+            </div>
+          )}
+          {appt.paymentStatus === 'deposit_paid' && (
+            <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, marginBottom:10 }}>
+              <span style={{ color:C.fgMuted }}>Balance Due at Appointment</span>
+              <span style={{ color:C.yellow }}>${appt.balanceDue || (appt.price - (appt.depositAmount||0))}</span>
+            </div>
+          )}
+          <div style={{ display:'flex', justifyContent:'space-between', fontSize:18, marginTop:12 }}>
+            <span>Total</span>
+            <span style={{ fontFamily:C.serif, color:appt.paymentStatus==='paid_full' ? C.green : C.fg }}>${appt.price}</span>
+          </div>
+          {appt.paymentStatus === 'paid_full' && (
+            <div style={{ textAlign:'center', marginTop:12, fontSize:11, letterSpacing:'0.2em', textTransform:'uppercase', color:C.green }}>✓ Paid in Full</div>
+          )}
+        </div>
+
+        <div style={{ textAlign:'center', fontSize:11, color:C.fgDim, lineHeight:1.8 }}>
+          Thank you for choosing Krystle &amp; Co!<br />
+          Woman Owned · Ashland, MA
+        </div>
+
+        <div className="no-print" style={{ display:'flex', gap:10, marginTop:28 }}>
+          <button onClick={() => window.print()} style={{ flex:1, padding:'12px', background:C.pink, border:'none', color:C.bg, fontFamily:C.sans, fontSize:11, letterSpacing:'0.15em', textTransform:'uppercase', cursor:'pointer' }}>
+            Print / Save PDF
+          </button>
+          <button onClick={onClose} style={{ flex:1, padding:'12px', background:'transparent', border:`1px solid ${C.border}`, color:C.fgMuted, fontFamily:C.sans, fontSize:11, letterSpacing:'0.15em', textTransform:'uppercase', cursor:'pointer' }}>
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Portal Dashboard ──────────────────────────────────────────────────────────
+function Portal({ client, onSignOut }) {
+  const [tab, setTab] = useState('upcoming');
+  const [editMode, setEditMode] = useState(false);
+  const [editForm, setEditForm] = useState({ ...client });
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [receipt, setReceipt] = useState(null);
+  const [liveClient, setLiveClient] = useState(client);
+  const [waiverMode, setWaiverMode] = useState(() => Store.waivers.forClient(client.id) ? 'view' : 'edit');
+  const [wForm, setWForm] = useState(() => {
+    const existing = Store.waivers.forClient(client.id);
+    return existing || {
+      clientId: client.id,
+      contactLenses:false, eyeSurgery:false, glaucoma:false, dryEyes:false, eyeAllergy:false,
+      skinConditions:'', medications:'', previousReaction:false, previousReactionDetails:'',
+      pregnant:false, chemotherapy:false,
+      latexAllergy:false, adhesiveAllergy:false, formaldehydeAllergy:false, otherAllergies:'',
+      refundPolicyAgreed:false, consentAgreed:false, noPhotos:false,
+      signature:'', signedDate:DateUtil.today(),
+    };
+  });
+
+  const today = DateUtil.today();
+  const allAppts = Store.appointments.all().filter(a => a.clientId === client.id);
+  const upcoming = allAppts.filter(a => a.date >= today && a.status !== 'cancelled').sort((a,b) => a.date > b.date ? 1 : -1);
+  const past = allAppts.filter(a => a.date < today || a.status === 'completed').sort((a,b) => a.date > b.date ? -1 : 1);
+  const totalSpent = past.filter(a => a.status !== 'cancelled').reduce((s,a) => s + (Number(a.price)||0), 0);
+
+  const TABS = [
+    { id:'upcoming', label:'Upcoming' },
+    { id:'history', label:'History' },
+    { id:'photos', label:'My Photos' },
+    { id:'waiver', label:'Waiver' },
+    { id:'profile', label:'My Profile' },
+  ];
+
+  const statusColor = (s) => s==='confirmed' ? C.green : s==='pending' ? C.yellow : C.fgMuted;
+
+  const saveProfile = async () => {
+    setSavingProfile(true);
+    // If new password provided, hash it
+    let updatedClient = { ...liveClient, ...editForm };
+    if (editForm.newPassword) {
+      updatedClient.passwordHash = await Auth.hashPassword(editForm.newPassword);
+    }
+    delete updatedClient.newPassword;
+    delete updatedClient.confirmNewPassword;
+    Store.clients.save(updatedClient);
+    setLiveClient(updatedClient);
+    setEditMode(false);
+    setSavingProfile(false);
+  };
+
+  const set = (k,v) => setEditForm(f => ({...f,[k]:v}));
+
+  const inputStyle = { background:C.bg3, border:`1px solid ${C.border}`, color:C.fg, fontFamily:C.sans, fontSize:14, fontWeight:300, padding:'10px 14px', width:'100%', outline:'none' };
+  const labelStyle = { fontSize:10, letterSpacing:'0.18em', textTransform:'uppercase', color:C.fgMuted, display:'block', marginBottom:7 };
+
+  return (
+    <div style={{ minHeight:'100vh', background:C.bg }}>
+      <Nav client={liveClient} onSignOut={onSignOut} />
+
+      <div style={{ maxWidth:800, margin:'0 auto', padding:'48px 24px' }}>
+        {/* Welcome */}
+        <div style={{ display:'flex', alignItems:'center', gap:20, marginBottom:36 }}>
+          <div style={{ width:64, height:64, borderRadius:'50%', overflow:'hidden', background:C.bg2, border:`1px solid ${C.border}`, flexShrink:0 }}>
+            {liveClient.profilePhoto
+              ? <img src={liveClient.profilePhoto} alt="Profile" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+              : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:C.serif, fontSize:28, color:C.pink }}>
+                  {liveClient.name?.charAt(0)}
+                </div>
+            }
+          </div>
+          <div>
+            <div style={{ fontSize:10, letterSpacing:'0.3em', textTransform:'uppercase', color:C.pink, marginBottom:6 }}>Welcome back</div>
+            <h1 style={{ fontFamily:C.serif, fontSize:42, fontWeight:300, lineHeight:1 }}>
+              {liveClient.name.split(' ')[0]}<em style={{ fontStyle:'italic', color:C.pink }}>.</em>
+            </h1>
+          </div>
+        </div>
+
+        {/* Stats */}
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginBottom:36 }}>
+          {[
+            ['Upcoming', upcoming.length, 'appointments'],
+            ['Past Visits', past.length, 'completed'],
+            ['My Photos', Store.photos.forClient(client.id).length, 'from Krystle'],
+            ['Total Spent', `$${totalSpent}`, 'lifetime'],
+          ].map(([label, val, sub]) => (
+            <div key={label} style={{ background:C.bg2, border:`1px solid ${C.border}`, padding:'20px 24px' }}>
+              <div style={{ fontSize:9, letterSpacing:'0.25em', textTransform:'uppercase', color:C.fgMuted, marginBottom:8 }}>{label}</div>
+              <div style={{ fontFamily:C.serif, fontSize:36, fontWeight:300, color:C.pink, lineHeight:1 }}>{val}</div>
+              <div style={{ fontSize:11, color:C.fgMuted, marginTop:6 }}>{sub}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* No password banner */}
+        {!liveClient.passwordHash && (
+          <div style={{ background: C.yellow+'12', border:`1px solid ${C.yellow}33`, padding:'14px 20px', marginBottom:28, display:'flex', alignItems:'center', justifyContent:'space-between', gap:16 }}>
+            <div>
+              <div style={{ fontSize:12, color:C.yellow, marginBottom:3 }}>🔑 No password set on your account</div>
+              <div style={{ fontSize:11, color:C.fgMuted }}>Set a password to make signing in easier next time.</div>
+            </div>
+            <button onClick={() => setTab('profile')} style={{ flexShrink:0, padding:'8px 16px', background:'transparent', border:`1px solid ${C.yellow}55`, color:C.yellow, fontFamily:C.sans, fontSize:10, letterSpacing:'0.15em', textTransform:'uppercase', cursor:'pointer' }}>Set Password →</button>
+          </div>
+        )}
+
+        {/* No waiver banner */}
+        {!Store.waivers.forClient(liveClient.id) && (
+          <div style={{ background: C.pink+'0d', border:`1px solid ${C.pink}33`, padding:'14px 20px', marginBottom:28, display:'flex', alignItems:'center', justifyContent:'space-between', gap:16 }}>
+            <div>
+              <div style={{ fontSize:12, color:C.pink, marginBottom:3 }}>📋 Waiver &amp; medical history not on file</div>
+              <div style={{ fontSize:11, color:C.fgMuted }}>Complete your client waiver before your next appointment.</div>
+            </div>
+            <button onClick={() => setTab('waiver')} style={{ flexShrink:0, padding:'8px 16px', background:C.pink, border:'none', color:C.bg, fontFamily:C.sans, fontSize:10, letterSpacing:'0.15em', textTransform:'uppercase', cursor:'pointer' }}>Complete Now →</button>
+          </div>
+        )}
+
+        {/* Tabs */}
+        <div style={{ display:'flex', borderBottom:`1px solid ${C.border}`, marginBottom:28 }}>
+          {TABS.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)} style={{
+              padding:'10px 24px', background:'none', border:'none',
+              borderBottom: tab===t.id ? `2px solid ${C.pink}` : '2px solid transparent',
+              color: tab===t.id ? C.pink : C.fgMuted,
+              fontFamily:C.sans, fontSize:11, letterSpacing:'0.12em', textTransform:'uppercase',
+              cursor:'pointer', marginBottom:-1,
+            }}>{t.label}</button>
+          ))}
+        </div>
+
+        {/* Upcoming */}
+        {tab === 'upcoming' && (
+          <div>
+            {upcoming.length === 0 && (
+              <div style={{ textAlign:'center', padding:'48px', color:C.fgMuted }}>
+                <p style={{ marginBottom:20 }}>No upcoming appointments</p>
+                <a href="booking.html" style={{ display:'inline-block', padding:'12px 32px', background:C.pink, color:C.bg, fontFamily:C.sans, fontSize:11, letterSpacing:'0.2em', textTransform:'uppercase', textDecoration:'none' }}>
+                  Book an Appointment
+                </a>
+              </div>
+            )}
+            {upcoming.map(appt => (
+              <div key={appt.id} style={{ background:C.bg2, border:`1px solid ${C.border}`, padding:'24px', marginBottom:12 }}>
+                <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:16 }}>
+                  <div>
+                    <div style={{ fontFamily:C.serif, fontSize:22, marginBottom:4 }}>{appt.service}</div>
+                    <div style={{ fontSize:13, color:C.fgMuted }}>{DateUtil.format(appt.date,'long')} at {DateUtil.formatTime(appt.time)}</div>
+                    <div style={{ fontSize:11, color:C.fgMuted, marginTop:2 }}>{appt.duration} min · Krystle & Co, Ashland MA</div>
+                  </div>
+                  <div style={{ textAlign:'right' }}>
+                    <div style={{ fontFamily:C.serif, fontSize:24, color:C.pink }}>${appt.price}</div>
+                    <div style={{ marginTop:6, display:'inline-flex', alignItems:'center', gap:6, padding:'2px 10px', borderRadius:20, background:statusColor(appt.status)+'18', border:`1px solid ${statusColor(appt.status)}44`, fontSize:11, color:statusColor(appt.status) }}>
+                      <span style={{ width:5, height:5, borderRadius:'50%', background:statusColor(appt.status), display:'inline-block' }} />
+                      {appt.status?.charAt(0).toUpperCase() + appt.status?.slice(1)}
+                    </div>
+                  </div>
+                </div>
+                {appt.paymentStatus && appt.paymentStatus !== 'paid_full' && (
+                  <div style={{ background:C.yellow+'12', border:`1px solid ${C.yellow}33`, padding:'10px 14px', fontSize:12, color:C.yellow }}>
+                    {appt.paymentStatus === 'deposit_pending' ? `Deposit of $${appt.depositAmount || 0} pending` : appt.paymentStatus === 'deposit_paid' ? `Balance due at appointment: $${appt.balanceDue || 0}` : 'Payment outstanding'}
+                  </div>
+                )}
+                {appt.notes && <div style={{ marginTop:12, fontSize:12, color:C.fgMuted, fontStyle:'italic' }}>"{appt.notes}"</div>}
+                <div style={{ marginTop:16, display:'flex', gap:10 }}>
+                  <a href={`booking.html?service=${encodeURIComponent(appt.service)}`}
+                    style={{ fontSize:11, letterSpacing:'0.12em', textTransform:'uppercase', color:C.fgMuted, textDecoration:'none', border:`1px solid ${C.border}`, padding:'8px 16px' }}>
+                    Rebook This Service
+                  </a>
+                  <AddToCalendar title={`${appt.service} — Krystle & Co`} date={appt.date} time={appt.time} duration={appt.duration} />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* History */}
+        {tab === 'history' && (
+          <div>
+            {past.length === 0 && <div style={{ padding:'48px', textAlign:'center', color:C.fgMuted }}>No past appointments yet</div>}
+              {past.map(appt => {
+                const apptPhotos = Store.photos.forAppointment(appt.id);
+                return (
+                <div key={appt.id} style={{ display:'flex', alignItems:'center', gap:14, padding:'16px 0', borderBottom:`1px solid ${C.border}33` }}>
+                  <div style={{ width:4, height:48, background: appt.status==='cancelled' ? C.red+'44' : C.pink+'44', flexShrink:0 }} />
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:15, marginBottom:3 }}>{appt.service}</div>
+                    <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                      <span style={{ fontSize:12, color:C.fgMuted }}>{DateUtil.format(appt.date,'medium')}</span>
+                      {apptPhotos.length > 0 && (
+                        <span onClick={() => setTab('photos')} style={{ fontSize:10, color:C.pink, cursor:'pointer', letterSpacing:'0.1em' }}>
+                          📷 {apptPhotos.length} photo{apptPhotos.length !== 1 ? 's' : ''}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div style={{ textAlign:'right', marginRight:12 }}>
+                    <div style={{ fontFamily:C.serif, fontSize:20, color: appt.status==='cancelled' ? C.fgMuted : C.fg }}>${appt.price}</div>
+                    {appt.paymentStatus === 'paid_full' && <div style={{ fontSize:10, color:C.green, marginTop:2 }}>Paid ✓</div>}
+                  </div>
+                  <div style={{ display:'flex', gap:8 }}>
+                    <a href={`booking.html?service=${encodeURIComponent(appt.service)}`}
+                      style={{ fontSize:10, letterSpacing:'0.12em', textTransform:'uppercase', color:C.pink, textDecoration:'none', border:`1px solid ${C.pink}44`, padding:'6px 12px', whiteSpace:'nowrap' }}>
+                      Rebook
+                    </a>
+                    {appt.paymentStatus === 'paid_full' && (
+                      <button onClick={() => setReceipt(appt)}
+                        style={{ fontSize:10, letterSpacing:'0.12em', textTransform:'uppercase', color:C.fgMuted, background:'none', border:`1px solid ${C.border}`, padding:'6px 12px', cursor:'pointer', whiteSpace:'nowrap' }}>
+                        Receipt
+                      </button>
+                    )}
+                  </div>
+                </div>
+                );
+              })}
+          </div>
+        )}
+
+        {/* Photos */}
+        {tab === 'photos' && (() => {
+          const myPhotos = Store.photos.forClient(client.id);
+          return (
+            <div>
+              {myPhotos.length === 0 ? (
+                <div style={{ textAlign:'center', padding:'60px', color:C.fgMuted }}>
+                  <div style={{ fontSize:36, marginBottom:12 }}>📷</div>
+                  <p>No photos yet — your before &amp; afters will appear here after your appointments!</p>
+                </div>
+              ) : (
+                <div>
+                  <p style={{ fontSize:13, color:C.fgMuted, marginBottom:24, lineHeight:1.7 }}>
+                    Your service photos from Krystle &amp; Co. {myPhotos.length} photo{myPhotos.length !== 1 ? 's' : ''} total.
+                  </p>
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(220px, 1fr))', gap:3 }}>
+                    {myPhotos.map(photo => {
+                      const appt = photo.appointmentId ? Store.appointments.get(photo.appointmentId) : null;
+                      return (
+                        <div key={photo.id} style={{ position:'relative', group:true }}>
+                          <div style={{ aspectRatio:'1', overflow:'hidden', position:'relative' }}>
+                            <img src={photo.dataUrl} alt={photo.caption || photo.tag}
+                              style={{ width:'100%', height:'100%', objectFit:'cover', transition:'transform 0.4s ease' }}
+                              onMouseEnter={e => e.target.style.transform='scale(1.05)'}
+                              onMouseLeave={e => e.target.style.transform='scale(1)'} />
+                            {/* Tag badge */}
+                            <div style={{ position:'absolute', top:10, left:10, background:'rgba(12,10,11,0.75)', color:C.fg, fontSize:9, letterSpacing:'0.15em', textTransform:'uppercase', padding:'3px 8px' }}>
+                              {photo.tag}
+                            </div>
+                          </div>
+                          {/* Meta */}
+                          <div style={{ padding:'10px 4px' }}>
+                            {photo.caption && <div style={{ fontSize:13, marginBottom:3 }}>{photo.caption}</div>}
+                            {appt && <div style={{ fontSize:11, color:C.pink }}>{appt.service} · {DateUtil.format(appt.date, 'short')}</div>}
+                            {!appt && photo.createdAt && <div style={{ fontSize:11, color:C.fgMuted }}>{DateUtil.format(photo.createdAt, 'short')}</div>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* Waiver */}
+        {tab === 'waiver' && (() => {
+          const existingWaiver = Store.waivers.forClient(liveClient.id);
+          const setW = (k,v) => setWForm(f => ({...f,[k]:v}));
+
+          const CB = ({label, val, onChange, color}) => (
+            <label style={{display:'flex',alignItems:'flex-start',gap:10,cursor:'pointer',padding:'7px 0'}}>
+              <div onClick={()=>onChange(!val)} style={{width:16,height:16,border:`1px solid ${val?(color||C.pink):C.border}`,background:val?(color||C.pink):'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,marginTop:2,transition:'all 0.2s'}}>
+                {val && <span style={{color:C.bg,fontSize:10,fontWeight:700}}>✓</span>}
+              </div>
+              <span style={{fontSize:13,color:val?C.fg:C.fgMuted,lineHeight:1.5}}>{label}</span>
+            </label>
+          );
+
+          const Sec = ({title, color, children}) => (
+            <div style={{marginBottom:28}}>
+              <div style={{fontSize:9,letterSpacing:'0.3em',textTransform:'uppercase',color:color||C.pink,marginBottom:14,paddingBottom:8,borderBottom:`1px solid ${C.border}`}}>{title}</div>
+              {children}
+            </div>
+          );
+
+          const saveWaiver = () => {
+            if (!wForm.signature?.trim()) { alert('Please type your full name as your signature.'); return; }
+            Store.waivers.save({...wForm, clientId:liveClient.id});
+            setWaiverMode('view');
+          };
+
+          if (waiverMode === 'view' && existingWaiver) {
+            const IR = ({label, val, color}) => (
+              <div style={{display:'flex',gap:12,padding:'9px 0',borderBottom:`1px solid ${C.border}22`}}>
+                <div style={{fontSize:11,color:C.fgMuted,width:240,flexShrink:0}}>{label}</div>
+                <div style={{fontSize:13,color:color||C.fg}}>{val}</div>
+              </div>
+            );
+            return (
+              <div>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:24}}>
+                  <div>
+                    <div style={{fontSize:9,letterSpacing:'0.3em',textTransform:'uppercase',color:C.green,marginBottom:6}}>✓ Signed {DateUtil.format(existingWaiver.signedDate,'medium')}</div>
+                    <h2 style={{fontFamily:C.serif,fontSize:28,fontWeight:300}}>Your Waiver <em style={{fontStyle:'italic',color:C.pink}}>&amp; Medical History</em></h2>
+                  </div>
+                  <button onClick={()=>{ setWForm({...existingWaiver}); setWaiverMode('edit'); }} style={{padding:'8px 18px',background:'transparent',border:`1px solid ${C.border}`,color:C.fgMuted,fontFamily:C.sans,fontSize:10,letterSpacing:'0.12em',textTransform:'uppercase',cursor:'pointer'}}>Update</button>
+                </div>
+                <Sec title="Medical History">
+                  {[['Contact Lenses',existingWaiver.contactLenses],['Eye Surgery',existingWaiver.eyeSurgery],['Glaucoma',existingWaiver.glaucoma],['Dry Eyes',existingWaiver.dryEyes],['Eye Allergies',existingWaiver.eyeAllergy],['Pregnant',existingWaiver.pregnant],['Chemotherapy',existingWaiver.chemotherapy],['Previous Reaction',existingWaiver.previousReaction]].map(([l,v])=>(
+                    <IR key={l} label={l} val={v?'Yes':'No'} color={v?C.yellow:C.green} />
+                  ))}
+                  {existingWaiver.previousReaction && existingWaiver.previousReactionDetails && <IR label="Reaction Details" val={existingWaiver.previousReactionDetails} />}
+                  {existingWaiver.skinConditions && <IR label="Skin Conditions" val={existingWaiver.skinConditions} />}
+                  {existingWaiver.medications && <IR label="Medications" val={existingWaiver.medications} />}
+                </Sec>
+                <Sec title="Allergy Disclosures" color={C.red}>
+                  {[['Latex Allergy',existingWaiver.latexAllergy],['Adhesive Allergy',existingWaiver.adhesiveAllergy],['Formaldehyde Sensitivity',existingWaiver.formaldehydeAllergy]].map(([l,v])=>(
+                    <IR key={l} label={l} val={v?'Yes ⚠':'No'} color={v?C.red:C.green} />
+                  ))}
+                  {existingWaiver.otherAllergies && <IR label="Other Allergies" val={existingWaiver.otherAllergies} />}
+                </Sec>
+                <Sec title="Signature" color={C.green}>
+                  <IR label="Signed by" val={existingWaiver.signature} color={C.pink} />
+                  <IR label="Date" val={DateUtil.format(existingWaiver.signedDate,'medium')} />
+                </Sec>
+              </div>
+            );
+          }
+
+          return (
+            <div>
+              <h2 style={{fontFamily:C.serif,fontSize:30,fontWeight:300,marginBottom:6}}>
+                {existingWaiver ? 'Update Your' : 'Complete Your'} <em style={{fontStyle:'italic',color:C.pink}}>Waiver</em>
+              </h2>
+              <p style={{fontSize:13,color:C.fgMuted,marginBottom:28,lineHeight:1.8}}>Please complete this form before your appointment. All information is kept private and secure.</p>
+
+              <Sec title="Medical History">
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 24px'}}>
+                  <CB label="I wear contact lenses" val={wForm.contactLenses} onChange={v=>setW('contactLenses',v)} />
+                  <CB label="I have had eye surgery (LASIK, etc.)" val={wForm.eyeSurgery} onChange={v=>setW('eyeSurgery',v)} />
+                  <CB label="I have glaucoma or eye pressure issues" val={wForm.glaucoma} onChange={v=>setW('glaucoma',v)} color={C.yellow} />
+                  <CB label="I have dry eyes" val={wForm.dryEyes} onChange={v=>setW('dryEyes',v)} />
+                  <CB label="I have eye allergies / sensitive eyes" val={wForm.eyeAllergy} onChange={v=>setW('eyeAllergy',v)} color={C.yellow} />
+                  <CB label="I am currently pregnant" val={wForm.pregnant} onChange={v=>setW('pregnant',v)} color={C.yellow} />
+                  <CB label="Undergoing chemotherapy or radiation" val={wForm.chemotherapy} onChange={v=>setW('chemotherapy',v)} color={C.red} />
+                  <CB label="Previous reaction to lash extensions" val={wForm.previousReaction} onChange={v=>setW('previousReaction',v)} color={C.red} />
+                </div>
+                {wForm.previousReaction && (
+                  <div style={{marginTop:10}}>
+                    <label style={{fontSize:10,letterSpacing:'0.18em',textTransform:'uppercase',color:C.fgMuted,display:'block',marginBottom:7}}>Describe the reaction</label>
+                    <input value={wForm.previousReactionDetails||''} onChange={e=>setW('previousReactionDetails',e.target.value)} placeholder="Redness, swelling, itching…" style={{background:C.bg3,border:`1px solid ${C.border}`,color:C.fg,fontFamily:C.sans,fontSize:14,fontWeight:300,padding:'10px 14px',width:'100%',outline:'none'}} />
+                  </div>
+                )}
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginTop:14}}>
+                  <div>
+                    <label style={{fontSize:10,letterSpacing:'0.18em',textTransform:'uppercase',color:C.fgMuted,display:'block',marginBottom:7}}>Skin conditions</label>
+                    <input value={wForm.skinConditions||''} onChange={e=>setW('skinConditions',e.target.value)} placeholder="Eczema, psoriasis, none…" style={{background:C.bg3,border:`1px solid ${C.border}`,color:C.fg,fontFamily:C.sans,fontSize:14,fontWeight:300,padding:'10px 14px',width:'100%',outline:'none'}} />
+                  </div>
+                  <div>
+                    <label style={{fontSize:10,letterSpacing:'0.18em',textTransform:'uppercase',color:C.fgMuted,display:'block',marginBottom:7}}>Medications</label>
+                    <input value={wForm.medications||''} onChange={e=>setW('medications',e.target.value)} placeholder="Blood thinners, Accutane, none…" style={{background:C.bg3,border:`1px solid ${C.border}`,color:C.fg,fontFamily:C.sans,fontSize:14,fontWeight:300,padding:'10px 14px',width:'100%',outline:'none'}} />
+                  </div>
+                </div>
+              </Sec>
+
+              <Sec title="Allergy Disclosures" color={C.red}>
+                <CB label="I have a latex allergy" val={wForm.latexAllergy} onChange={v=>setW('latexAllergy',v)} color={C.red} />
+                <CB label="I have an adhesive / cyanoacrylate allergy" val={wForm.adhesiveAllergy} onChange={v=>setW('adhesiveAllergy',v)} color={C.red} />
+                <CB label="I have a formaldehyde sensitivity" val={wForm.formaldehydeAllergy} onChange={v=>setW('formaldehydeAllergy',v)} color={C.red} />
+                <div style={{marginTop:10}}>
+                  <label style={{fontSize:10,letterSpacing:'0.18em',textTransform:'uppercase',color:C.fgMuted,display:'block',marginBottom:7}}>Other allergies</label>
+                  <input value={wForm.otherAllergies||''} onChange={e=>setW('otherAllergies',e.target.value)} placeholder="List any others…" style={{background:C.bg3,border:`1px solid ${C.border}`,color:C.fg,fontFamily:C.sans,fontSize:14,fontWeight:300,padding:'10px 14px',width:'100%',outline:'none'}} />
+                </div>
+              </Sec>
+
+              <Sec title="No Refund Policy" color={C.yellow}>
+                <div style={{background:C.bg3,border:`1px solid ${C.yellow}22`,padding:'16px 18px',marginBottom:14,fontSize:13,color:C.fgMuted,lineHeight:1.9}}>
+                  <strong style={{color:C.fg}}>All sales are final.</strong> No refunds will be issued once a service has been performed. If unhappy with results, contact us within <strong style={{color:C.fg}}>48 hours</strong> for a complimentary adjustment. Cancellations within <strong style={{color:C.fg}}>24 hours</strong> forfeit the deposit. No-shows forfeit the deposit in full.
+                </div>
+                <CB label="I have read and agree to the No Refund Policy" val={wForm.refundPolicyAgreed} onChange={v=>setW('refundPolicyAgreed',v)} color={C.yellow} />
+              </Sec>
+
+              <Sec title="Consent" color={C.green}>
+                <CB label="I consent to the lash extension service and acknowledge reactions, though rare, can occur" val={wForm.consentAgreed} onChange={v=>setW('consentAgreed',v)} color={C.green} />
+                <CB label="I decline permission for before/after photos" val={wForm.noPhotos} onChange={v=>setW('noPhotos',v)} color={C.fgMuted} />
+              </Sec>
+
+              <Sec title="Electronic Signature" color={C.pink}>
+                <p style={{fontSize:12,color:C.fgMuted,marginBottom:12}}>Type your full legal name to sign electronically.</p>
+                <div style={{display:'grid',gridTemplateColumns:'1fr auto',gap:12,alignItems:'end'}}>
+                  <div>
+                    <label style={{fontSize:10,letterSpacing:'0.18em',textTransform:'uppercase',color:C.fgMuted,display:'block',marginBottom:7}}>Full Name *</label>
+                    <input value={wForm.signature||''} onChange={e=>setW('signature',e.target.value)} placeholder={liveClient.name} style={{background:C.bg3,border:`2px solid ${wForm.signature?C.pink:C.border}`,color:C.fg,fontFamily:C.serif,fontSize:20,fontStyle:'italic',padding:'10px 14px',width:'100%',outline:'none',transition:'border-color 0.2s'}} />
+                  </div>
+                  <div>
+                    <label style={{fontSize:10,letterSpacing:'0.18em',textTransform:'uppercase',color:C.fgMuted,display:'block',marginBottom:7}}>Date</label>
+                    <input type="date" value={wForm.signedDate||DateUtil.today()} onChange={e=>setW('signedDate',e.target.value)} style={{background:C.bg3,border:`1px solid ${C.border}`,color:C.fg,fontFamily:C.sans,fontSize:14,fontWeight:300,padding:'10px 14px',outline:'none',colorScheme:'dark'}} />
+                  </div>
+                </div>
+              </Sec>
+
+              <div style={{display:'flex',gap:10,paddingBottom:40}}>
+                {existingWaiver && <button onClick={()=>setWaiverMode('view')} style={{padding:'13px 24px',background:'transparent',border:`1px solid ${C.border}`,color:C.fgMuted,fontFamily:C.sans,fontSize:11,letterSpacing:'0.15em',textTransform:'uppercase',cursor:'pointer'}}>Cancel</button>}
+                <button onClick={saveWaiver} disabled={!wForm.signature?.trim()} style={{flex:1,padding:'14px',background:wForm.signature?.trim()?C.pink:C.bg3,border:'none',color:wForm.signature?.trim()?C.bg:C.fgMuted,fontFamily:C.sans,fontSize:11,letterSpacing:'0.2em',textTransform:'uppercase',cursor:wForm.signature?.trim()?'pointer':'default',transition:'all 0.2s'}}>
+                  Save &amp; Sign Waiver
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Profile */}
+        {tab === 'profile' && (
+          <div style={{ maxWidth:520 }}>
+            {!editMode ? (
+              <div>
+                <div style={{ background:C.bg2, border:`1px solid ${C.border}`, padding:'28px', marginBottom:20 }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
+                    <div style={{ fontSize:10, letterSpacing:'0.25em', textTransform:'uppercase', color:C.pink }}>Contact Info</div>
+                    <button onClick={() => { setEditForm({...liveClient}); setEditMode(true); }}
+                      style={{ background:'none', border:`1px solid ${C.border}`, color:C.fgMuted, fontFamily:C.sans, fontSize:10, letterSpacing:'0.12em', textTransform:'uppercase', padding:'6px 14px', cursor:'pointer' }}>
+                      Edit
+                    </button>
+                  </div>
+                  {/* Profile photo */}
+                  <div style={{ display:'flex', alignItems:'center', gap:20, marginBottom:20, paddingBottom:20, borderBottom:`1px solid ${C.border}33` }}>
+                    <div style={{ width:72, height:72, borderRadius:'50%', overflow:'hidden', background:C.bg3, border:`1px solid ${C.border}`, flexShrink:0 }}>
+                      {liveClient.profilePhoto
+                        ? <img src={liveClient.profilePhoto} alt="Profile" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+                        : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:C.serif, fontSize:28, color:C.pink }}>
+                            {liveClient.name?.charAt(0)}
+                          </div>
+                      }
+                    </div>
+                    <label style={{ display:'inline-flex', alignItems:'center', gap:6, fontSize:10, letterSpacing:'0.15em', textTransform:'uppercase', color:C.pink, cursor:'pointer', border:`1px solid ${C.pink}44`, padding:'6px 14px' }}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+                      Upload Photo
+                      <input type="file" accept="image/*" style={{ display:'none' }} onChange={async e => {
+                        const file = e.target.files[0];
+                        if (!file) return;
+                        const dataUrl = await Store.compressImage(file, 400, 0.85);
+                        const updated = { ...liveClient, profilePhoto: dataUrl };
+                        Store.clients.save(updated);
+                        setLiveClient(updated);
+                      }} />
+                    </label>
+                  </div>
+                  {[['Name', liveClient.name],['Email', liveClient.email],['Phone', liveClient.phone],['Birthday', liveClient.birthday ? DateUtil.format(liveClient.birthday,'short') : '—']].map(([label,val]) => (
+                    <div key={label} style={{ display:'flex', justifyContent:'space-between', padding:'10px 0', borderBottom:`1px solid ${C.border}33`, fontSize:13 }}>
+                      <span style={{ color:C.fgMuted }}>{label}</span>
+                      <span>{val || '—'}</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ background: liveClient.passwordHash ? C.bg2 : C.yellow+'10', border:`1px solid ${liveClient.passwordHash ? C.border : C.yellow+'44'}`, padding:'20px 28px' }}>
+                  <div style={{ fontSize:10, letterSpacing:'0.25em', textTransform:'uppercase', color: liveClient.passwordHash ? C.pink : C.yellow, marginBottom:12 }}>Password</div>
+                  {liveClient.passwordHash
+                    ? <div style={{ fontSize:13, color:C.fgMuted }}>••••••••</div>
+                    : <div style={{ fontSize:13, color:C.yellow }}>No password set — you can only log in with your phone number.</div>
+                  }
+                  <button onClick={() => { setEditForm({...liveClient}); setEditMode(true); }}
+                    style={{ marginTop:12, background:'none', border:'none', color:C.pink, fontFamily:C.sans, fontSize:11, letterSpacing:'0.12em', cursor:'pointer', padding:0 }}>
+                    {liveClient.passwordHash ? 'Change password →' : 'Set a password →'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ background:C.bg2, border:`1px solid ${C.border}`, padding:'28px' }}>
+                <div style={{ fontSize:10, letterSpacing:'0.25em', textTransform:'uppercase', color:C.pink, marginBottom:24 }}>Edit Profile</div>
+                <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+                    <div><label style={labelStyle}>First Name</label><input style={inputStyle} value={editForm.name?.split(' ')[0]||''} onChange={e => set('name', e.target.value + ' ' + (liveClient.name.split(' ')[1]||''))} /></div>
+                    <div><label style={labelStyle}>Last Name</label><input style={inputStyle} value={editForm.name?.split(' ').slice(1).join(' ')||''} onChange={e => set('name', (liveClient.name.split(' ')[0]||'') + ' ' + e.target.value)} /></div>
+                  </div>
+                  <div><label style={labelStyle}>Email</label><input type="email" style={inputStyle} value={editForm.email||''} onChange={e => set('email', e.target.value)} /></div>
+                  <div><label style={labelStyle}>Phone</label><input type="tel" style={inputStyle} value={editForm.phone||''} onChange={e => set('phone', e.target.value)} /></div>
+                  <div><label style={labelStyle}>Birthday</label><input type="date" style={{...inputStyle, colorScheme:'dark'}} value={editForm.birthday||''} onChange={e => set('birthday', e.target.value)} /></div>
+                  <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:20 }}>
+                    <div style={{ fontSize:10, letterSpacing:'0.2em', textTransform:'uppercase', color:C.pink, marginBottom:16 }}>
+                      {liveClient.passwordHash ? 'Change Password (optional)' : '🔑 Set Your Password'}
+                    </div>
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+                      <div><label style={labelStyle}>New Password</label><input type="password" style={inputStyle} value={editForm.newPassword||''} onChange={e => set('newPassword', e.target.value)} placeholder="Leave blank to keep current" /></div>
+                      <div><label style={labelStyle}>Confirm</label><input type="password" style={inputStyle} value={editForm.confirmNewPassword||''} onChange={e => set('confirmNewPassword', e.target.value)} /></div>
+                    </div>
+                  </div>
+                  <div style={{ display:'flex', gap:10, marginTop:8 }}>
+                    <button onClick={saveProfile} disabled={savingProfile} style={{ flex:1, padding:'12px', background:C.pink, border:'none', color:C.bg, fontFamily:C.sans, fontSize:11, letterSpacing:'0.15em', textTransform:'uppercase', cursor:'pointer' }}>
+                      {savingProfile ? 'Saving…' : 'Save Changes'}
+                    </button>
+                    <button onClick={() => setEditMode(false)} style={{ flex:1, padding:'12px', background:'transparent', border:`1px solid ${C.border}`, color:C.fgMuted, fontFamily:C.sans, fontSize:11, letterSpacing:'0.15em', textTransform:'uppercase', cursor:'pointer' }}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {receipt && <Receipt appt={receipt} client={liveClient} onClose={() => setReceipt(null)} />}
+      <InstallPrompt />
+    </div>
+  );
+}
+
+// ── App ───────────────────────────────────────────────────────────────────────
+function App() {
+  const [client, setClient] = useState(() => {
+    // Check sessionStorage first, then localStorage "remember me"
+    const sessionId = Auth.getSession();
+    if (sessionId) return Store.clients.get(sessionId);
+    const rememberedId = localStorage.getItem('kc_client_remember');
+    if (rememberedId) {
+      const c = Store.clients.get(rememberedId);
+      if (c) { Auth.setSession(c.id); return c; }
+    }
+    return null;
+  });
+
+
+  const signOut = () => {
+    Auth.clearSession();
+    localStorage.removeItem('kc_client_remember');
+    setClient(null);
+  };
+
+  if (!client) return <LoginScreen onLogin={c => setClient(c)} />;
+  return <Portal client={client} onSignOut={signOut} />;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
+</script>
+</body>
+</html>

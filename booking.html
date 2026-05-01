@@ -1,0 +1,991 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Krystle & Co">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <meta name="theme-color" content="#0c0a0b">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Book an Appointment — Krystle & Co</title>
+<meta name="description" content="Book your lash or brow appointment with Krystle & Co in Ashland, MA.">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230c0a0b'/%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-family='Georgia%2C serif' font-size='32' font-style='italic' fill='oklch(0.72 0.14 352)'%3EK%3C/text%3E%3C/svg%3E">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=Jost:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="admin/store.js?v=8"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0c0a0b; --bg2: #120f10; --bg3: #1e1a1c;
+    --fg: #f0ece8; --fg-muted: rgba(240,236,232,0.5); --fg-dim: rgba(240,236,232,0.2);
+    --pink: oklch(0.72 0.14 352); --pink-deep: oklch(0.52 0.18 352);
+    --green: oklch(0.72 0.16 145);
+    --border: rgba(240,236,232,0.1);
+    --serif: 'Cormorant Garamond', Georgia, serif;
+    --sans: 'Jost', sans-serif;
+  }
+  html { scroll-behavior: smooth; }
+  body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-weight: 300; min-height: 100vh; }
+  input, select { outline: none; }
+  ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-thumb { background: var(--border); }
+  input[type="text"], input[type="email"], input[type="tel"] {
+    background: var(--bg3); border: 1px solid var(--border); color: var(--fg);
+    font-family: var(--sans); font-size: 15px; font-weight: 300;
+    padding: 12px 16px; width: 100%;
+  }
+  input[type="text"]:focus, input[type="email"]:focus, input[type="tel"]:focus {
+    border-color: var(--pink);
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useMemo } = React;
+
+const C = {
+  bg: '#0c0a0b', bg2: '#120f10', bg3: '#1e1a1c',
+  fg: '#f0ece8', fgMuted: 'rgba(240,236,232,0.5)', fgDim: 'rgba(240,236,232,0.2)',
+  pink: 'oklch(0.72 0.14 352)', pinkDeep: 'oklch(0.52 0.18 352)',
+  green: 'oklch(0.72 0.16 145)', red: 'oklch(0.65 0.18 25)',
+  border: 'rgba(240,236,232,0.1)',
+  serif: "'Cormorant Garamond', Georgia, serif",
+  sans: "'Jost', sans-serif",
+};
+
+// Working hours 9am–7pm, 60-min slots
+const WORK_START = 9;
+const WORK_END = 19;
+
+function getAvailableSlots(date, serviceDuration, appointments) {
+  const slots = [];
+  for (let h = WORK_START; h < WORK_END; h++) {
+    const timeStr = `${String(h).padStart(2,'0')}:00`;
+    if (Store.availability.isTimeBlocked(date, timeStr)) continue;
+    const slotStart = h * 60;
+    const slotEnd = slotStart + serviceDuration;
+    // Check conflicts with existing confirmed/pending appointments
+    const conflict = appointments
+      .filter(a => a.date === date && a.status !== 'cancelled')
+      .some(a => {
+        const [ah, am] = a.time.split(':').map(Number);
+        const aStart = ah * 60 + am;
+        const aEnd = aStart + (a.duration || 60);
+        return slotStart < aEnd && slotEnd > aStart;
+      });
+    if (!conflict) slots.push(timeStr);
+  }
+  return slots;
+}
+
+function isWeekend(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00');
+  return d.getDay() === 0; // Sunday only - Sat is open
+}
+
+// ── Steps ────────────────────────────────────────────────────────────────────
+const STEPS = ['Service', 'Date & Time', 'Your Info', 'Review & Pay'];
+
+function StepIndicator({ steps = STEPS, current }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0, marginBottom: 48 }}>
+      {steps.map((s, i) => (
+        <React.Fragment key={s}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+            <div style={{
+              width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: i < current ? C.green : i === current ? C.pink : 'transparent',
+              border: `1px solid ${i <= current ? 'transparent' : C.border}`,
+              fontSize: 12, fontWeight: 500,
+              color: i <= current ? C.bg : C.fgMuted,
+            }}>
+              {i < current ? '✓' : i + 1}
+            </div>
+            <span style={{ fontSize: 9, letterSpacing: '0.15em', textTransform: 'uppercase', color: i === current ? C.pink : C.fgMuted, whiteSpace: 'nowrap' }}>{s}</span>
+          </div>
+          {i < STEPS.length - 1 && (
+            <div style={{ width: 60, height: 1, background: i < current ? C.green : C.border, margin: '0 4px', marginBottom: 24, flexShrink: 0 }} />
+          )}
+        </React.Fragment>
+      ))}
+    </div>
+  );
+}
+
+// ── Step 1: Service ───────────────────────────────────────────────────────────
+function ServiceStep({ services, selected, onSelect }) {
+  const categories = [...new Set(services.map(s => s.category))];
+  return (
+    <div>
+      <h2 style={{ fontFamily: C.serif, fontSize: 32, fontWeight: 300, marginBottom: 8 }}>
+        Choose a <em style={{ fontStyle: 'italic', color: C.pink }}>service</em>
+      </h2>
+      <p style={{ fontSize: 13, color: C.fgMuted, marginBottom: 32, lineHeight: 1.7 }}>
+        Select the service you'd like to book. Contact for custom pricing questions.
+      </p>
+      {categories.map(cat => (
+        <div key={cat} style={{ marginBottom: 28 }}>
+          <div style={{ fontSize: 9, letterSpacing: '0.3em', textTransform: 'uppercase', color: C.pink, marginBottom: 12 }}>{cat}</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {services.filter(s => s.category === cat).map(svc => {
+              const isSelected = selected?.id === svc.id;
+              return (
+                <div key={svc.id} onClick={() => onSelect(svc)}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '16px 20px', cursor: 'pointer',
+                    background: isSelected ? C.pink + '18' : C.bg2,
+                    border: `1px solid ${isSelected ? C.pink + '55' : C.border}`,
+                    transition: 'all 0.2s',
+                  }}
+                  onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = C.bg3; }}
+                  onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = C.bg2; }}
+                >
+                  <div style={{ flex: 1, minWidth: 0, paddingRight: 16 }}>
+                    <div style={{ fontSize: 15, marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{svc.name}</div>
+                    <div style={{ fontSize: 11, color: C.fgMuted }}>{svc.duration} min</div>
+                  </div>
+                  <div style={{ flexShrink: 0, textAlign: 'right' }}>
+                    <div style={{ fontFamily: C.serif, fontSize: 22, color: isSelected ? C.pink : C.fg }}>${svc.price}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Step 2: Date & Time ───────────────────────────────────────────────────────
+function DateTimeStep({ service, appointments, selectedDate, selectedTime, onSelect }) {
+  const today = DateUtil.today();
+  const [month, setMonth] = useState(() => {
+    const d = new Date(today + 'T12:00:00');
+    return { year: d.getFullYear(), month: d.getMonth() };
+  });
+
+  const daysInMonth = DateUtil.daysInMonth(month.year, month.month);
+  const firstDay = DateUtil.firstDayOfMonth(month.year, month.month);
+  const cells = [];
+  for (let i = 0; i < firstDay; i++) cells.push(null);
+  for (let i = 1; i <= daysInMonth; i++) cells.push(i);
+
+  const availableSlots = useMemo(() => {
+    if (!selectedDate) return [];
+    return getAvailableSlots(selectedDate, service.duration, appointments);
+  }, [selectedDate, service.duration, appointments]);
+
+  const dayNames = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+
+  return (
+    <div>
+      <h2 style={{ fontFamily: C.serif, fontSize: 32, fontWeight: 300, marginBottom: 8 }}>
+        Pick a <em style={{ fontStyle: 'italic', color: C.pink }}>date & time</em>
+      </h2>
+      <p style={{ fontSize: 13, color: C.fgMuted, marginBottom: 28, lineHeight: 1.7 }}>
+        Showing available times for <strong style={{ color: C.fg }}>{service.name}</strong> ({service.duration} min)
+      </p>
+
+      {/* Month nav */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <button onClick={() => setMonth(m => { const d = new Date(m.year, m.month - 1); return { year: d.getFullYear(), month: d.getMonth() }; })}
+          style={{ background: 'none', border: `1px solid ${C.border}`, color: C.fg, cursor: 'pointer', padding: '6px 14px', fontFamily: C.sans }}>‹</button>
+        <span style={{ fontFamily: C.serif, fontSize: 20 }}>
+          {new Date(month.year, month.month).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+        </span>
+        <button onClick={() => setMonth(m => { const d = new Date(m.year, m.month + 1); return { year: d.getFullYear(), month: d.getMonth() }; })}
+          style={{ background: 'none', border: `1px solid ${C.border}`, color: C.fg, cursor: 'pointer', padding: '6px 14px', fontFamily: C.sans }}>›</button>
+      </div>
+
+      {/* Calendar grid */}
+      <div style={{ background: C.bg2, border: `1px solid ${C.border}`, marginBottom: 28 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', borderBottom: `1px solid ${C.border}` }}>
+          {dayNames.map(d => <div key={d} style={{ padding: '10px 0', textAlign: 'center', fontSize: 9, letterSpacing: '0.15em', textTransform: 'uppercase', color: C.fgMuted }}>{d}</div>)}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)' }}>
+          {cells.map((day, i) => {
+            if (!day) return <div key={`e${i}`} style={{ minHeight: 48 }} />;
+            const dateStr = `${month.year}-${String(month.month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+            const isPast = dateStr < today;
+            const isSun = isWeekend(dateStr);
+            const isAvailBlocked = Store.availability.isDateBlocked(dateStr);
+            const isDisabled = isPast || isSun || isAvailBlocked;
+            const isSelected = dateStr === selectedDate;
+            const isToday = dateStr === today;
+            const slots = !isDisabled ? getAvailableSlots(dateStr, service.duration, appointments) : [];
+            const hasSlots = slots.length > 0;
+            return (
+              <div key={day}
+                onClick={() => !isDisabled && hasSlots && onSelect(dateStr, null)}
+                style={{
+                  minHeight: 48, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4,
+                  cursor: isDisabled || !hasSlots ? 'default' : 'pointer',
+                  background: isSelected ? C.pink + '22' : 'transparent',
+                  border: isSelected ? `1px solid ${C.pink}55` : '1px solid transparent',
+                  opacity: isDisabled || !hasSlots ? 0.3 : 1,
+                  transition: 'all 0.15s',
+                }}
+              >
+                <div style={{
+                  width: 30, height: 30, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: isSelected ? C.pink : isToday ? C.pink + '33' : 'transparent',
+                  color: isSelected ? C.bg : C.fg, fontSize: 13,
+                }}>{day}</div>
+                {!isDisabled && hasSlots && <div style={{ width: 4, height: 4, borderRadius: '50%', background: C.green }} />}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Time slots */}
+      {selectedDate && (
+        <div>
+          <div style={{ fontSize: 10, letterSpacing: '0.25em', textTransform: 'uppercase', color: C.pink, marginBottom: 14 }}>
+            Available times — {DateUtil.format(selectedDate, 'medium')}
+          </div>
+          {availableSlots.length === 0 ? (
+            <p style={{ color: C.fgMuted, fontSize: 13 }}>No available slots on this day. Please pick another date.</p>
+          ) : (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {availableSlots.map(t => (
+                <button key={t} onClick={() => onSelect(selectedDate, t)}
+                  style={{
+                    padding: '10px 20px', fontFamily: C.sans, fontSize: 13, cursor: 'pointer',
+                    background: selectedTime === t ? C.pink : C.bg2,
+                    border: `1px solid ${selectedTime === t ? C.pink : C.border}`,
+                    color: selectedTime === t ? C.bg : C.fg,
+                    transition: 'all 0.2s',
+                  }}>
+                  {DateUtil.formatTime(t)}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Step 3: Client Info ───────────────────────────────────────────────────────
+function InfoStep({ info, onChange }) {
+  const set = (k, v) => onChange({ ...info, [k]: v });
+  const labelStyle = { fontSize: 10, letterSpacing: '0.2em', textTransform: 'uppercase', color: C.fgMuted, display: 'block', marginBottom: 8 };
+  const pwMatch = !info.password || !info.confirmPassword || info.password === info.confirmPassword;
+  return (
+    <div>
+      <h2 style={{ fontFamily: C.serif, fontSize: 32, fontWeight: 300, marginBottom: 8 }}>
+        Your <em style={{ fontStyle: 'italic', color: C.pink }}>details</em>
+      </h2>
+      <p style={{ fontSize: 13, color: C.fgMuted, marginBottom: 32, lineHeight: 1.7 }}>
+        We'll send your confirmation and appointment reminders to the details below.
+      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div>
+            <label style={labelStyle}>First Name</label>
+            <input type="text" value={info.firstName || ''} onChange={e => set('firstName', e.target.value)} placeholder="Olivia" />
+          </div>
+          <div>
+            <label style={labelStyle}>Last Name</label>
+            <input type="text" value={info.lastName || ''} onChange={e => set('lastName', e.target.value)} placeholder="Walsh" />
+          </div>
+        </div>
+        <div>
+          <label style={labelStyle}>Email</label>
+          <input type="email" value={info.email || ''} onChange={e => set('email', e.target.value)} placeholder="you@email.com" />
+        </div>
+        <div>
+          <label style={labelStyle}>Phone</label>
+          <input type="tel" value={info.phone || ''} onChange={e => set('phone', e.target.value)} placeholder="508-555-0100" />
+        </div>
+        <div>
+          <label style={labelStyle}>Notes / Requests (optional)</label>
+          <textarea value={info.notes || ''} onChange={e => set('notes', e.target.value)} placeholder="Allergies, preferences, questions…" rows={3}
+            style={{ background: C.bg3, border: `1px solid ${C.border}`, color: C.fg, fontFamily: C.sans, fontSize: 15, fontWeight: 300, padding: '12px 16px', width: '100%', resize: 'vertical', outline: 'none' }} />
+        </div>
+
+        {/* Account creation */}
+        <div style={{ background: C.bg2, border: `1px solid ${C.border}`, padding: '20px' }}>
+          <div style={{ fontSize: 10, letterSpacing: '0.2em', textTransform: 'uppercase', color: C.pink, marginBottom: 4 }}>Create Your Client Account</div>
+          <p style={{ fontSize: 12, color: C.fgMuted, marginBottom: 16, lineHeight: 1.7 }}>
+            Optional — create an account to view your appointments, history and receipts at any time.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={labelStyle}>Password</label>
+              <input type="password" value={info.password || ''} onChange={e => set('password', e.target.value)} placeholder="Create a password"
+                style={{ background: C.bg3, border: `1px solid ${C.border}`, color: C.fg, fontFamily: C.sans, fontSize: 14, fontWeight: 300, padding: '10px 14px', width: '100%', outline: 'none' }} />
+            </div>
+            <div>
+              <label style={labelStyle}>Confirm Password</label>
+              <input type="password" value={info.confirmPassword || ''} onChange={e => set('confirmPassword', e.target.value)} placeholder="Repeat password"
+                style={{ background: C.bg3, border: `1px solid ${!pwMatch ? C.red : C.border}`, color: C.fg, fontFamily: C.sans, fontSize: 14, fontWeight: 300, padding: '10px 14px', width: '100%', outline: 'none' }} />
+            </div>
+          </div>
+          {!pwMatch && <div style={{ fontSize: 11, color: C.red, marginTop: 8 }}>Passwords don't match</div>}
+        </div>
+
+        <div style={{ background: C.bg2, border: `1px solid ${C.border}`, padding: '14px 18px', fontSize: 12, color: C.fgMuted, lineHeight: 1.7 }}>
+          <strong style={{ color: C.fg }}>Cancellation Policy:</strong> A non-refundable deposit is required to secure your appointment.
+          Cancellations within 24 hours of the appointment will forfeit the deposit.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Step 4: Review & Pay ──────────────────────────────────────────────────────
+function ReviewStep({ service, date, time, info, depositPercent, settings, onConfirm, loading }) {
+  const deposit = Math.round(service.price * depositPercent / 100);
+  const balance = service.price - deposit;
+  const stripeLink = settings?.stripeLinks?.[service.id]?.depositLink || settings?.stripeLinks?.default?.depositLink || '';
+
+  return (
+    <div>
+      <h2 style={{ fontFamily: C.serif, fontSize: 32, fontWeight: 300, marginBottom: 8 }}>
+        Review <em style={{ fontStyle: 'italic', color: C.pink }}>&amp; confirm</em>
+      </h2>
+      <p style={{ fontSize: 13, color: C.fgMuted, marginBottom: 32 }}>Please review your booking before paying.</p>
+
+      {/* Summary card */}
+      <div style={{ background: C.bg2, border: `1px solid ${C.border}`, marginBottom: 24 }}>
+        <div style={{ padding: '20px 24px', borderBottom: `1px solid ${C.border}` }}>
+          <div style={{ fontSize: 9, letterSpacing: '0.25em', textTransform: 'uppercase', color: C.pink, marginBottom: 12 }}>Appointment</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            {[
+              ['Service', service.name],
+              ['Duration', `${service.duration} min`],
+              ['Date', DateUtil.format(date, 'long')],
+              ['Time', DateUtil.formatTime(time)],
+            ].map(([label, val]) => (
+              <div key={label}>
+                <div style={{ fontSize: 10, letterSpacing: '0.15em', textTransform: 'uppercase', color: C.fgMuted, marginBottom: 4 }}>{label}</div>
+                <div style={{ fontSize: 14 }}>{val}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{ padding: '20px 24px', borderBottom: `1px solid ${C.border}` }}>
+          <div style={{ fontSize: 9, letterSpacing: '0.25em', textTransform: 'uppercase', color: C.pink, marginBottom: 12 }}>Client</div>
+          <div style={{ fontSize: 14, marginBottom: 4 }}>{info.firstName} {info.lastName}</div>
+          <div style={{ fontSize: 12, color: C.fgMuted }}>{info.email} · {info.phone}</div>
+        </div>
+        <div style={{ padding: '20px 24px' }}>
+          <div style={{ fontSize: 9, letterSpacing: '0.25em', textTransform: 'uppercase', color: C.pink, marginBottom: 16 }}>Payment</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+            <span style={{ color: C.fgMuted, fontSize: 13 }}>Service Total</span>
+            <span style={{ fontFamily: C.serif, fontSize: 18 }}>${service.price}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+            <span style={{ color: C.fgMuted, fontSize: 13 }}>Deposit Due Today ({depositPercent}%)</span>
+            <span style={{ fontFamily: C.serif, fontSize: 18, color: C.pink }}>${deposit}</span>
+          </div>
+          <div style={{ height: 1, background: C.border, margin: '14px 0' }} />
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 13 }}>Balance due at appointment</span>
+            <span style={{ fontFamily: C.serif, fontSize: 18, color: C.fgMuted }}>${balance}</span>
+          </div>
+        </div>
+      </div>
+
+      {stripeLink ? (
+        <a href={stripeLink} target="_blank" rel="noopener"
+          onClick={onConfirm}
+          style={{
+            display: 'block', textAlign: 'center', width: '100%',
+            padding: '18px', background: C.pink, color: C.bg,
+            fontFamily: C.sans, fontSize: 12, letterSpacing: '0.2em', textTransform: 'uppercase',
+            textDecoration: 'none', transition: 'background 0.2s',
+          }}>
+          Pay ${deposit} Deposit &amp; Confirm Booking
+        </a>
+      ) : (
+        <button onClick={onConfirm} disabled={loading}
+          style={{
+            display: 'block', width: '100%', padding: '18px',
+            background: loading ? C.pinkDeep : C.pink, color: C.bg,
+            fontFamily: C.sans, fontSize: 12, letterSpacing: '0.2em', textTransform: 'uppercase',
+            border: 'none', cursor: loading ? 'wait' : 'pointer', transition: 'background 0.2s',
+          }}>
+          {loading ? 'Confirming…' : `Confirm Booking — Deposit $${deposit}`}
+        </button>
+      )}
+      <p style={{ fontSize: 11, color: C.fgMuted, textAlign: 'center', marginTop: 12 }}>
+        {stripeLink ? 'You will be redirected to our secure payment page.' : 'Booking request will be submitted. Krystle will confirm and send a payment link.'}
+      </p>
+    </div>
+  );
+}
+
+
+// ── Add to Calendar helpers ────────────────────────────────────────────────────
+function makeGoogleCalUrl({ title, date, time, duration, location, description }) {
+  const [y,mo,d] = date.split('-').map(Number);
+  const [h,m] = time.split(':').map(Number);
+  const pad = n => String(n).padStart(2,'0');
+  const fmt = (yr,mn,dy,hr,mi) => `${yr}${pad(mn)}${pad(dy)}T${pad(hr)}${pad(mi)}00`;
+  const start = fmt(y,mo,d,h,m);
+  // end time
+  const endDate = new Date(y,mo-1,d,h,m+(duration||60));
+  const end = fmt(endDate.getFullYear(),endDate.getMonth()+1,endDate.getDate(),endDate.getHours(),endDate.getMinutes());
+  return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(title)}&dates=${start}/${end}&location=${encodeURIComponent(location||'Ashland, MA')}&details=${encodeURIComponent(description||'')}`;
+}
+
+function makeICSContent({ title, date, time, duration, location, description }) {
+  const [y,mo,d] = date.split('-').map(Number);
+  const [h,m] = time.split(':').map(Number);
+  const pad = n => String(n).padStart(2,'0');
+  const fmt = (yr,mn,dy,hr,mi) => `${yr}${pad(mn)}${pad(dy)}T${pad(hr)}${pad(mi)}00`;
+  const start = fmt(y,mo,d,h,m);
+  const endDate = new Date(y,mo-1,d,h,m+(duration||60));
+  const end = fmt(endDate.getFullYear(),endDate.getMonth()+1,endDate.getDate(),endDate.getHours(),endDate.getMinutes());
+  return `BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nDTSTART:${start}\nDTEND:${end}\nSUMMARY:${title}\nLOCATION:${location||'Ashland, MA'}\nDESCRIPTION:${description||''}\nEND:VEVENT\nEND:VCALENDAR`;
+}
+
+function downloadICS(content, filename) {
+  const blob = new Blob([content], { type: 'text/calendar' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename || 'appointment.ics';
+  a.click(); URL.revokeObjectURL(url);
+}
+
+function AddToCalendar({ title, date, time, duration, location }) {
+  const [open, setOpen] = React.useState(false);
+  const desc = `Appointment at Krystle & Co · ${location||'Ashland, MA'} · krystle@krystleandco.com`;
+  const googleUrl = makeGoogleCalUrl({ title, date, time, duration, location, description: desc });
+  const icsContent = makeICSContent({ title, date, time, duration, location, description: desc });
+  return (
+    <div style={{ position:'relative', display:'inline-block' }}>
+      <button onClick={() => setOpen(o => !o)} style={{
+        display:'flex', alignItems:'center', gap:8, padding:'11px 20px',
+        background:'transparent', border:`1px solid ${C.border}`, color:C.fgMuted,
+        fontFamily:C.sans, fontSize:11, letterSpacing:'0.15em', textTransform:'uppercase', cursor:'pointer',
+      }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+        </svg>
+        Add to Calendar
+      </button>
+      {open && (
+        <div style={{ position:'absolute', top:'100%', left:0, marginTop:4, background:'#161213', border:`1px solid ${C.border}`, zIndex:100, minWidth:200, boxShadow:'0 8px 24px rgba(0,0,0,0.5)' }}>
+          <a href={googleUrl} target="_blank" rel="noopener"
+            style={{ display:'flex', alignItems:'center', gap:10, padding:'12px 16px', fontSize:13, color:C.fg, textDecoration:'none', borderBottom:`1px solid ${C.border}` }}
+            onMouseEnter={e=>e.currentTarget.style.background='#1e1a1c'}
+            onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+            Google Calendar
+          </a>
+          <button onClick={() => { downloadICS(icsContent, 'krystle-appt.ics'); setOpen(false); }}
+            style={{ display:'flex', alignItems:'center', gap:10, padding:'12px 16px', fontSize:13, color:C.fg, background:'transparent', border:'none', cursor:'pointer', width:'100%', textAlign:'left' }}
+            onMouseEnter={e=>e.currentTarget.style.background='#1e1a1c'}
+            onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 2a10 10 0 100 20A10 10 0 0012 2z"/><path d="M12 8v4l3 3"/></svg>
+            Apple Calendar (.ics)
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Confirmation ──────────────────────────────────────────────────────────────
+function Confirmation({ booking, autoLoggedIn, email }) {
+  const portalUrl = autoLoggedIn ? 'portal.html' : `portal.html?email=${encodeURIComponent(email || '')}`;
+  return (
+    <div style={{ textAlign: 'center', padding: '40px 0' }}>
+      <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'oklch(0.72 0.16 145 / 0.15)', border: '1px solid oklch(0.72 0.16 145 / 0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px', fontSize: 28 }}>
+        ✓
+      </div>
+      <h2 style={{ fontFamily: C.serif, fontSize: 36, fontWeight: 300, marginBottom: 12 }}>
+        You're <em style={{ fontStyle: 'italic', color: C.pink }}>booked!</em>
+      </h2>
+      <p style={{ fontSize: 14, color: C.fgMuted, lineHeight: 1.8, maxWidth: 420, margin: '0 auto 32px' }}>
+        Your appointment request has been received. Krystle will confirm shortly and send payment details to <strong style={{ color: C.fg }}>{booking.email}</strong>.
+      </p>
+      <div style={{ background: C.bg2, border: `1px solid ${C.border}`, padding: '20px 24px', maxWidth: 360, margin: '0 auto 32px', textAlign: 'left' }}>
+        <div style={{ fontSize: 9, letterSpacing: '0.25em', textTransform: 'uppercase', color: C.pink, marginBottom: 14 }}>Your Booking</div>
+        <div style={{ fontSize: 15, marginBottom: 6 }}>{booking.service}</div>
+        <div style={{ fontSize: 13, color: C.fgMuted, marginBottom: 16 }}>{DateUtil.format(booking.date, 'long')} at {DateUtil.formatTime(booking.time)}</div>
+        <AddToCalendar title={`${booking.service} — Krystle & Co`} date={booking.date} time={booking.time} duration={booking.duration} location="Ashland, MA" />
+      </div>
+
+      {/* Account CTA */}
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+        {autoLoggedIn ? (
+          <a href={portalUrl} style={{
+            display: 'inline-block', padding: '14px 36px', background: C.pink, color: C.bg,
+            fontFamily: C.sans, fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase',
+            textDecoration: 'none',
+          }}>
+            Go to My Account →
+          </a>
+        ) : email ? (
+          <a href={portalUrl} style={{
+            display: 'inline-block', padding: '14px 36px', background: C.bg2,
+            border: `1px solid ${C.pink}55`, color: C.pink,
+            fontFamily: C.sans, fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase',
+            textDecoration: 'none',
+          }}>
+            Sign in to My Account →
+          </a>
+        ) : null}
+        <a href="index.html" style={{ fontSize: 12, letterSpacing: '0.2em', textTransform: 'uppercase', color: C.fgMuted, textDecoration: 'none' }}>
+          ← Back to Krystle &amp; Co
+        </a>
+      </div>
+    </div>
+  );
+}
+
+// ── Step: Waiver ──────────────────────────────────────────────────────────────
+function WaiverStep({ clientName, waiver, onChange }) {
+  const { useState } = React;
+  const [local, setLocal] = useState(waiver);
+
+  const toggle = (k) => {
+    const next = { ...local, [k]: !local[k] };
+    setLocal(next);
+    onChange(next);
+  };
+  const setText = (k, v) => setLocal(f => ({ ...f, [k]: v }));
+  const flushText = () => onChange({ ...local });
+
+  // inline checkbox — no sub-component so focus never resets
+  const chk = (k, label, color) => (
+    <label key={k} style={{ display:'flex', alignItems:'flex-start', gap:10, cursor:'pointer', padding:'7px 0' }}>
+      <div onClick={() => toggle(k)} style={{ width:16, height:16, border:`1px solid ${local[k]?(color||C.pink):C.border}`, background:local[k]?(color||C.pink):'transparent', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, marginTop:2, transition:'all 0.2s' }}>
+        {local[k] && <span style={{ color:C.bg, fontSize:10, fontWeight:700 }}>✓</span>}
+      </div>
+      <span style={{ fontSize:13, color:local[k]?C.fg:C.fgMuted, lineHeight:1.5 }}>{label}</span>
+    </label>
+  );
+
+  const secTitle = (title, color) => (
+    <div style={{ fontSize:9, letterSpacing:'0.3em', textTransform:'uppercase', color:color||C.pink, marginBottom:12, paddingBottom:8, borderBottom:`1px solid ${C.border}` }}>{title}</div>
+  );
+
+  const lbl = (text) => <label style={{ fontSize:10, letterSpacing:'0.18em', textTransform:'uppercase', color:C.fgMuted, display:'block', marginBottom:7 }}>{text}</label>;
+  const inp = (k, placeholder) => (
+    <input value={local[k]||''} onChange={e=>setText(k,e.target.value)} onBlur={flushText}
+      placeholder={placeholder}
+      style={{ background:C.bg3, border:`1px solid ${C.border}`, color:C.fg, fontFamily:C.sans, fontSize:14, fontWeight:300, padding:'10px 14px', width:'100%', outline:'none' }} />
+  );
+
+  return (
+    <div>
+      <h2 style={{ fontFamily:C.serif, fontSize:32, fontWeight:300, marginBottom:8 }}>
+        Waiver <em style={{ fontStyle:'italic', color:C.pink }}>&amp; health form</em>
+      </h2>
+      <p style={{ fontSize:13, color:C.fgMuted, marginBottom:28, lineHeight:1.7 }}>
+        Required before your first appointment. All information is kept private.
+      </p>
+
+      {/* Medical History */}
+      <div style={{ marginBottom:28 }}>
+        {secTitle('Medical History')}
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0 20px' }}>
+          {chk('contactLenses','I wear contact lenses')}
+          {chk('eyeSurgery','Eye surgery (LASIK etc.)')}
+          {chk('glaucoma','Glaucoma / eye pressure issues',C.yellow)}
+          {chk('dryEyes','Dry eyes')}
+          {chk('eyeAllergy','Eye allergies / sensitive eyes',C.yellow)}
+          {chk('pregnant','Currently pregnant',C.yellow)}
+          {chk('chemotherapy','Chemotherapy / radiation',C.red)}
+          {chk('previousReaction','Previous reaction to lash extensions',C.red)}
+        </div>
+        {local.previousReaction && (
+          <div style={{ marginTop:10 }}>
+            {lbl('Describe reaction')}
+            {inp('previousReactionDetails','Redness, swelling, itching…')}
+          </div>
+        )}
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginTop:14 }}>
+          <div>{lbl('Skin conditions')}{inp('skinConditions','Eczema, psoriasis, none…')}</div>
+          <div>{lbl('Medications')}{inp('medications','Blood thinners, Accutane, none…')}</div>
+        </div>
+      </div>
+
+      {/* Allergy Disclosures */}
+      <div style={{ marginBottom:28 }}>
+        {secTitle('Allergy Disclosures', C.red)}
+        {chk('latexAllergy','Latex allergy',C.red)}
+        {chk('adhesiveAllergy','Adhesive / cyanoacrylate allergy',C.red)}
+        {chk('formaldehydeAllergy','Formaldehyde sensitivity',C.red)}
+        <div style={{ marginTop:10 }}>{lbl('Other allergies')}{inp('otherAllergies','List any others…')}</div>
+      </div>
+
+      {/* No Refund Policy */}
+      <div style={{ marginBottom:28 }}>
+        {secTitle('No Refund Policy', C.yellow)}
+        <div style={{ background:C.bg2, border:`1px solid ${C.yellow}22`, padding:'14px 18px', marginBottom:12, fontSize:13, color:C.fgMuted, lineHeight:1.9 }}>
+          <strong style={{ color:C.fg }}>All sales are final.</strong> No refunds once a service has been performed. Cancellations within <strong style={{ color:C.fg }}>24 hours</strong> forfeit the deposit in full.
+        </div>
+        {chk('refundPolicyAgreed','I have read and agree to the No Refund Policy',C.yellow)}
+      </div>
+
+      {/* Consent */}
+      <div style={{ marginBottom:28 }}>
+        {secTitle('Consent', 'oklch(0.72 0.16 145)')}
+        {chk('consentAgreed','I consent to the lash/brow service and understand reactions, though rare, can occur','oklch(0.72 0.16 145)')}
+        {chk('noPhotos','I decline permission for before/after photos',C.fgMuted)}
+      </div>
+
+      {/* Signature */}
+      <div style={{ marginBottom:28 }}>
+        {secTitle('Electronic Signature', C.pink)}
+        <p style={{ fontSize:12, color:C.fgMuted, marginBottom:12 }}>Type your full legal name to sign this waiver electronically.</p>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr auto', gap:12, alignItems:'end' }}>
+          <div>
+            {lbl('Full Name *')}
+            <input value={local.signature||''} onChange={e=>setText('signature',e.target.value)} onBlur={flushText}
+              placeholder={clientName||'Your full name'}
+              style={{ background:C.bg3, border:`2px solid ${local.signature?C.pink:C.border}`, color:C.fg, fontFamily:"'Cormorant Garamond',Georgia,serif", fontSize:20, fontStyle:'italic', padding:'10px 14px', width:'100%', outline:'none', transition:'border-color 0.2s' }} />
+          </div>
+          <div>
+            {lbl('Date')}
+            <input type="date" value={local.signedDate||DateUtil.today()} onChange={e=>{ const next={...local,signedDate:e.target.value}; setLocal(next); onChange(next); }}
+              style={{ background:C.bg3, border:`1px solid ${C.border}`, color:C.fg, fontFamily:C.sans, fontSize:14, fontWeight:300, padding:'10px 14px', outline:'none', colorScheme:'dark' }} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ── Step: Reference Photos ────────────────────────────────────────────────────
+function PhotoStep({ photos, onChange }) {
+  const { useRef } = React;
+  const fileRef = useRef();
+
+  const addFiles = (files) => {
+    const newPhotos = [];
+    let processed = 0;
+    Array.from(files).filter(f => f.type.startsWith('image/')).forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        newPhotos.push({ name: file.name, dataUrl: e.target.result });
+        processed++;
+        if (processed === Array.from(files).filter(f => f.type.startsWith('image/')).length) {
+          onChange([...photos, ...newPhotos]);
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  return (
+    <div>
+      <h2 style={{ fontFamily:C.serif, fontSize:32, fontWeight:300, marginBottom:8 }}>
+        Inspiration <em style={{ fontStyle:'italic', color:C.pink }}>photos</em>
+      </h2>
+      <p style={{ fontSize:13, color:C.fgMuted, marginBottom:28, lineHeight:1.7 }}>
+        Optional — share any inspiration or reference photos so Krystle can prepare for your appointment.
+      </p>
+
+      {/* Drop zone */}
+      <div
+        onClick={() => fileRef.current?.click()}
+        onDragOver={e => e.preventDefault()}
+        onDrop={e => { e.preventDefault(); addFiles(e.dataTransfer.files); }}
+        style={{ border:`2px dashed ${C.border}`, padding:'40px 20px', textAlign:'center', cursor:'pointer', marginBottom:20, transition:'border-color 0.2s' }}
+        onMouseEnter={e => e.currentTarget.style.borderColor=C.pink}
+        onMouseLeave={e => e.currentTarget.style.borderColor=C.border}
+      >
+        <input ref={fileRef} type="file" accept="image/*" multiple style={{ display:'none' }} onChange={e => addFiles(e.target.files)} />
+        <div style={{ fontSize:32, marginBottom:8 }}>📷</div>
+        <div style={{ fontSize:14, color:C.fg, marginBottom:4 }}>Drop photos or tap to select</div>
+        <div style={{ fontSize:12, color:C.fgMuted }}>JPG, PNG · Optional — skip if you don't have any</div>
+      </div>
+
+      {/* Preview grid */}
+      {photos.length > 0 && (
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(100px,1fr))', gap:8 }}>
+          {photos.map((p, i) => (
+            <div key={i} style={{ position:'relative', aspectRatio:'1', overflow:'hidden' }}>
+              <img src={p.dataUrl} alt={p.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+              <button onClick={() => onChange(photos.filter((_,j)=>j!==i))}
+                style={{ position:'absolute', top:4, right:4, width:20, height:20, borderRadius:'50%', background:'rgba(0,0,0,0.7)', border:'none', color:'#fff', fontSize:11, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <p style={{ fontSize:12, color:C.fgMuted, marginTop:20, lineHeight:1.7 }}>
+        You can also skip this step — just hit Continue below.
+      </p>
+    </div>
+  );
+}
+
+// ── Main App ──────────────────────────────────────────────────────────────────
+function BookingApp() {
+  const [step, setStep] = useState(0);
+  const [service, setService] = useState(null);
+  const [date, setDate] = useState(null);
+  const [time, setTime] = useState(null);
+  const [info, setInfo] = useState({});
+  const [refPhotos, setRefPhotos] = useState([]);
+  const [waiver, setWaiver] = useState({
+    contactLenses:false, eyeSurgery:false, glaucoma:false, dryEyes:false, eyeAllergy:false,
+    skinConditions:'', medications:'', previousReaction:false, previousReactionDetails:'',
+    pregnant:false, chemotherapy:false,
+    latexAllergy:false, adhesiveAllergy:false, formaldehydeAllergy:false, otherAllergies:'',
+    refundPolicyAgreed:false, consentAgreed:false, noPhotos:false,
+    signature:'', signedDate:DateUtil.today(),
+  });
+  const [loading, setLoading] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
+
+  const services = Store.services.all();
+  const appointments = Store.appointments.all();
+  const settings = Store.settings.get();
+  const depositPercent = settings.depositPercent || 50;
+
+  // Check if client is already logged in
+  const loggedInClient = useMemo(() => {
+    const id = Auth.getSession() || localStorage.getItem('kc_client_remember');
+    if (id) return Store.clients.get(id);
+    return null;
+  }, []);
+
+  // Pre-fill info from logged in client
+  useEffect(() => {
+    if (loggedInClient) {
+      const [firstName, ...rest] = (loggedInClient.name || '').split(' ');
+      setInfo({
+        firstName,
+        lastName: rest.join(' '),
+        email: loggedInClient.email || '',
+        phone: loggedInClient.phone || '',
+        notes: '',
+      });
+    }
+  }, [loggedInClient]);
+
+  // Pre-select service from URL param (e.g. ?service=Hybrid+Full+Set)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const svcName = params.get('service');
+    if (svcName) {
+      const match = services.find(s => s.name === decodeURIComponent(svcName));
+      if (match) { setService(match); setStep(1); }
+    }
+  }, []);
+
+  // Check if logged-in client already has a signed waiver
+  const hasWaiver = loggedInClient ? !!Store.waivers.forClient(loggedInClient.id) : false;
+
+  // Steps — skip info if logged in, skip waiver if already signed
+  const VISIBLE_STEPS = loggedInClient
+    ? hasWaiver
+      ? ['Service', 'Date & Time', 'Photos', 'Review & Pay']
+      : ['Service', 'Date & Time', 'Waiver', 'Photos', 'Review & Pay']
+    : ['Service', 'Date & Time', 'Your Info', 'Waiver', 'Photos', 'Review & Pay'];
+
+  // actual step indices: 0=service,1=date,2=info(new only),3=waiver,4=review
+  const REVIEW_STEP = loggedInClient ? (hasWaiver ? 3 : 4) : 5;
+  const PHOTO_STEP = loggedInClient ? (hasWaiver ? 2 : 3) : 4;
+  const WAIVER_STEP = loggedInClient ? (hasWaiver ? -1 : 2) : 3;
+  const INFO_STEP = loggedInClient ? -1 : 2;
+
+  const visibleStepIndex = () => {
+    if (step === 0) return 0;
+    if (step === 1) return 1;
+    if (step === INFO_STEP) return 2;
+    if (step === WAIVER_STEP) return loggedInClient ? 2 : 3;
+    if (step === PHOTO_STEP) return VISIBLE_STEPS.length - 2;
+    if (step === REVIEW_STEP) return VISIBLE_STEPS.length - 1;
+    return step;
+  };
+
+  const canNext = () => {
+    if (step === 0) return !!service;
+    if (step === 1) return !!date && !!time;
+    if (step === INFO_STEP) return !!(info.firstName && info.lastName && info.email && info.phone);
+    if (step === WAIVER_STEP) return !!(waiver.signature?.trim() || false);
+    if (step === PHOTO_STEP) return true; // optional — always can continue
+    return false;
+  };
+
+  const goNext = () => {
+    if (step === 1) {
+      setStep(loggedInClient ? (hasWaiver ? PHOTO_STEP : WAIVER_STEP) : INFO_STEP);
+    } else if (step === INFO_STEP) {
+      setStep(WAIVER_STEP);
+    } else if (step === WAIVER_STEP) {
+      setStep(PHOTO_STEP);
+    } else if (step === PHOTO_STEP) {
+      setStep(REVIEW_STEP);
+    } else {
+      setStep(s => s + 1);
+    }
+  };
+
+  const goBack = () => {
+    if (step === REVIEW_STEP) {
+      setStep(PHOTO_STEP);
+    } else if (step === PHOTO_STEP) {
+      setStep(hasWaiver && loggedInClient ? 1 : WAIVER_STEP);
+    } else if (step === WAIVER_STEP) {
+      setStep(loggedInClient ? 1 : INFO_STEP);
+    } else if (step === INFO_STEP) {
+      setStep(1);
+    } else {
+      setStep(s => s - 1);
+    }
+  };
+
+  const handleConfirm = async () => {
+    setLoading(true);
+    await new Promise(r => setTimeout(r, 600));
+    const deposit = Math.round(service.price * depositPercent / 100);
+    let passwordHash = null;
+    if (info.password && info.password === info.confirmPassword) {
+      passwordHash = await Auth.hashPassword(info.password);
+    }
+    const appt = {
+      clientId: loggedInClient?.id || null,
+      clientName: loggedInClient?.name || `${info.firstName} ${info.lastName}`,
+      clientEmail: loggedInClient?.email || info.email,
+      clientPhone: loggedInClient?.phone || info.phone,
+      clientPassword: passwordHash,
+      service: service.name,
+      date, time,
+      duration: service.duration,
+      price: service.price,
+      depositAmount: deposit,
+      depositPercent,
+      balanceDue: service.price - deposit,
+      paymentStatus: 'deposit_pending',
+      status: 'pending',
+      notes: info.notes || '',
+      source: 'online_booking',
+    };
+    Store.appointments.save(appt);
+
+    // Save waiver if not already on file
+    const clientEmail = loggedInClient?.email || info.email;
+    const createdClient = Store.clients.all().find(c => c.email?.toLowerCase() === clientEmail?.toLowerCase());
+    if (createdClient && !Store.waivers.forClient(createdClient.id)) {
+      Store.waivers.save({ ...waiver, clientId: createdClient.id });
+    }
+    if (createdClient && (passwordHash || loggedInClient)) {
+      Auth.setSession(createdClient.id);
+    }
+
+    setConfirmed({ email: clientEmail, autoLoggedIn: !!(createdClient && (passwordHash || loggedInClient)), clientId: createdClient?.id });
+    setLoading(false);
+  };
+
+  if (confirmed) {
+    return (
+      <div style={{ minHeight: '100vh', background: C.bg, padding: '60px 24px' }}>
+        <div style={{ maxWidth: 560, margin: '0 auto' }}>
+          <Confirmation
+            booking={{ service: service.name, date, time, email: confirmed.email }}
+            autoLoggedIn={confirmed.autoLoggedIn}
+            email={confirmed.email}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ minHeight: '100vh', background: C.bg }}>
+      {/* Nav */}
+      <div style={{ borderBottom: `1px solid ${C.border}`, padding: '20px 40px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <a href="index.html" style={{ fontFamily: C.serif, fontSize: 20, color: C.fg, textDecoration: 'none' }}>
+          Krystle <em style={{ fontStyle: 'italic', color: C.pink }}>&amp; Co</em>
+        </a>
+        <span style={{ fontSize: 10, letterSpacing: '0.25em', textTransform: 'uppercase', color: C.fgMuted }}>
+          Ashland, MA
+        </span>
+      </div>
+
+      <div style={{ maxWidth: 640, margin: '0 auto', padding: '60px 24px' }}>
+        <div style={{ fontSize: 10, letterSpacing: '0.35em', textTransform: 'uppercase', color: C.pink, marginBottom: 12, textAlign: 'center' }}>
+          {new URLSearchParams(window.location.search).get('service') ? 'Rebooking' : 'Book an Appointment'}
+        </div>
+        <StepIndicator steps={VISIBLE_STEPS} current={visibleStepIndex()} />
+
+        <div style={{ minHeight: 400 }}>
+          {step === 0 && <ServiceStep services={services} selected={service} onSelect={s => { setService(s); setDate(null); setTime(null); }} />}
+          {step === 1 && <DateTimeStep service={service} appointments={appointments} selectedDate={date} selectedTime={time} onSelect={(d, t) => { setDate(d); setTime(t); }} />}
+          {step === INFO_STEP && <InfoStep info={info} onChange={setInfo} />}
+          {step === WAIVER_STEP && (
+            <WaiverStep
+              clientName={loggedInClient?.name || (info.firstName ? `${info.firstName} ${info.lastName}` : '')}
+              waiver={waiver}
+              onChange={setWaiver}
+            />
+          )}
+          {step === PHOTO_STEP && (
+            <PhotoStep photos={refPhotos} onChange={setRefPhotos} />
+          )}
+          {step === REVIEW_STEP && (
+            <div>
+              {loggedInClient && (
+                <div style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 16px', background: C.pink+'10', border:`1px solid ${C.pink}22`, marginBottom:24 }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.pink} strokeWidth="1.5"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                  <span style={{ fontSize:12, color: C.pink }}>Booking as <strong>{loggedInClient.name}</strong> · <a href="portal.html" style={{ color:C.fgMuted }}>Not you?</a></span>
+                </div>
+              )}
+              <ReviewStep service={service} date={date} time={time} info={info} depositPercent={depositPercent} settings={settings} onConfirm={handleConfirm} loading={loading} />
+            </div>
+          )}
+        </div>
+
+        {/* Navigation */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 40, paddingTop: 24, borderTop: `1px solid ${C.border}` }}>
+          {step > 0 ? (
+            <button onClick={goBack} style={{
+              background: 'transparent', border: `1px solid ${C.border}`, color: C.fgMuted,
+              fontFamily: C.sans, fontSize: 11, letterSpacing: '0.15em', textTransform: 'uppercase',
+              padding: '12px 24px', cursor: 'pointer',
+            }}>← Back</button>
+          ) : <div />}
+          {step !== REVIEW_STEP && (
+            <button onClick={goNext} disabled={!canNext()} style={{
+              background: canNext() ? C.pink : C.bg2,
+              border: `1px solid ${canNext() ? 'transparent' : C.border}`,
+              color: canNext() ? C.bg : C.fgMuted,
+              fontFamily: C.sans, fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase',
+              padding: '12px 32px', cursor: canNext() ? 'pointer' : 'default',
+              transition: 'all 0.2s',
+            }}>
+              Continue →
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<BookingApp />);
+</script>
+
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
+</script>
+</body>
+</html>

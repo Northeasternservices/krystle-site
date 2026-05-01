@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Client PWA Preview — Krystle & Co</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=Jost:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script type="text/babel" src="ios-frame.jsx"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0d0b0c;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    font-family: 'Jost', sans-serif;
+    font-weight: 300;
+    color: #f0ece8;
+  }
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState } = React;
+
+const SCREENS = [
+  { id: 'login',   label: 'Login',   desc: 'Clients sign in with email & password' },
+  { id: 'portal',  label: 'Home',    desc: 'Dashboard — upcoming appointments & stats' },
+  { id: 'waiver',  label: 'Waiver',  desc: 'Fill out health form & sign waiver' },
+  { id: 'booking', label: 'Booking', desc: 'Book a new appointment' },
+  { id: 'profile', label: 'Profile', desc: 'View & edit account details' },
+];
+
+const C = {
+  bg:'#0c0a0b', bg2:'#120f10', bg3:'#1e1a1c',
+  fg:'#f0ece8', fgMuted:'rgba(240,236,232,0.5)', fgDim:'rgba(240,236,232,0.2)',
+  pink:'oklch(0.72 0.14 352)', green:'oklch(0.72 0.16 145)',
+  yellow:'oklch(0.82 0.15 85)', red:'oklch(0.65 0.18 25)',
+  border:'rgba(240,236,232,0.1)',
+  serif:"'Cormorant Garamond',Georgia,serif",
+  sans:"'Jost',sans-serif",
+};
+
+// ── Screen mockups ────────────────────────────────────────────────────────────
+
+function LoginScreen() {
+  return (
+    <div style={{ background:C.bg, minHeight:'100%', padding:'40px 24px' }}>
+      <div style={{ textAlign:'center', marginBottom:40 }}>
+        <div style={{ fontFamily:C.serif, fontSize:32, marginBottom:6 }}>
+          Krystle <em style={{ fontStyle:'italic', color:C.pink }}>&amp; Co</em>
+        </div>
+        <div style={{ fontSize:10, letterSpacing:'0.25em', textTransform:'uppercase', color:C.fgMuted }}>Client Portal</div>
+      </div>
+      <div style={{ background:C.bg2, border:`1px solid ${C.border}`, padding:24 }}>
+        <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+          <div>
+            <div style={{ fontSize:9, letterSpacing:'0.2em', textTransform:'uppercase', color:C.fgMuted, marginBottom:7 }}>Email</div>
+            <div style={{ background:C.bg3, border:`1px solid ${C.border}`, padding:'11px 14px', fontSize:14, color:C.fgMuted }}>you@email.com</div>
+          </div>
+          <div>
+            <div style={{ fontSize:9, letterSpacing:'0.2em', textTransform:'uppercase', color:C.fgMuted, marginBottom:7 }}>Password</div>
+            <div style={{ background:C.bg3, border:`1px solid ${C.pink}`, padding:'11px 14px', fontSize:14, color:C.fg }}>••••••••</div>
+          </div>
+          <div style={{ height:44, background:C.pink, display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, letterSpacing:'0.2em', textTransform:'uppercase', color:C.bg, marginTop:4 }}>
+            Sign In
+          </div>
+        </div>
+      </div>
+      <p style={{ textAlign:'center', marginTop:20, fontSize:12, color:C.fgDim }}>
+        No account? Book an appointment to create one.
+      </p>
+    </div>
+  );
+}
+
+function PortalHome() {
+  return (
+    <div style={{ background:C.bg, minHeight:'100%' }}>
+      {/* Nav — pushed down to clear status bar */}
+      <div style={{ borderBottom:`1px solid ${C.border}`, padding:'16px 20px', display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:50 }}>
+        <div style={{ fontFamily:C.serif, fontSize:18 }}>Krystle <em style={{ fontStyle:'italic', color:C.pink }}>&amp; Co</em></div>
+        <div style={{ width:32, height:32, borderRadius:'50%', background:C.pink+'22', border:`1px solid ${C.pink}44`, display:'flex', alignItems:'center', justifyContent:'center', fontFamily:C.serif, color:C.pink, fontSize:14 }}>E</div>
+      </div>
+      <div style={{ padding:'24px 20px' }}>
+        {/* Welcome */}
+        <div style={{ marginBottom:24 }}>
+          <div style={{ fontSize:9, letterSpacing:'0.3em', textTransform:'uppercase', color:C.pink, marginBottom:4 }}>Welcome back</div>
+          <h1 style={{ fontFamily:C.serif, fontSize:36, fontWeight:300, lineHeight:1 }}>Emma<em style={{ fontStyle:'italic', color:C.pink }}>.</em></h1>
+        </div>
+        {/* Stats */}
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:20 }}>
+          {[['Upcoming','1','appt'],['Total Spent','$420','lifetime'],['Past Visits','3','completed'],['Photos','2','from Krystle']].map(([l,v,s]) => (
+            <div key={l} style={{ background:C.bg2, border:`1px solid ${C.border}`, padding:'14px 16px' }}>
+              <div style={{ fontSize:8, letterSpacing:'0.2em', textTransform:'uppercase', color:C.fgMuted, marginBottom:6 }}>{l}</div>
+              <div style={{ fontFamily:C.serif, fontSize:26, color:C.pink, lineHeight:1 }}>{v}</div>
+              <div style={{ fontSize:10, color:C.fgMuted, marginTop:4 }}>{s}</div>
+            </div>
+          ))}
+        </div>
+        {/* Waiver banner */}
+        <div style={{ background:C.pink+'0d', border:`1px solid ${C.pink}33`, padding:'12px 14px', marginBottom:16, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+          <div style={{ fontSize:11, color:C.pink }}>📋 Waiver not on file</div>
+          <div style={{ fontSize:9, letterSpacing:'0.12em', textTransform:'uppercase', color:C.pink, border:`1px solid ${C.pink}44`, padding:'4px 10px' }}>Complete</div>
+        </div>
+        {/* Next appt */}
+        <div style={{ background:C.bg2, border:`1px solid ${C.border}`, padding:'16px' }}>
+          <div style={{ fontSize:9, letterSpacing:'0.25em', textTransform:'uppercase', color:C.pink, marginBottom:10 }}>Next Appointment</div>
+          <div style={{ fontFamily:C.serif, fontSize:18, marginBottom:4 }}>Hybrid Full Set</div>
+          <div style={{ fontSize:12, color:C.fgMuted, marginBottom:10 }}>Monday, Apr 28 at 9:00 AM · 120 min</div>
+          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+            <div style={{ width:6, height:6, borderRadius:'50%', background:C.green }}></div>
+            <span style={{ fontSize:11, color:C.green }}>Confirmed</span>
+          </div>
+        </div>
+        {/* Tabs */}
+        <div style={{ display:'flex', borderBottom:`1px solid ${C.border}`, marginTop:24, marginBottom:16 }}>
+          {['Upcoming','History','Photos','Waiver','Profile'].map((t,i) => (
+            <div key={t} style={{ flex:1, padding:'8px 0', textAlign:'center', fontSize:9, letterSpacing:'0.1em', textTransform:'uppercase', color:i===0?C.pink:C.fgMuted, borderBottom:i===0?`2px solid ${C.pink}`:'2px solid transparent', marginBottom:-1 }}>{t}</div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WaiverScreen() {
+  return (
+    <div style={{ background:C.bg, minHeight:'100%' }}>
+      <div style={{ borderBottom:`1px solid ${C.border}`, padding:'16px 20px', display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:50 }}>
+        <div style={{ fontFamily:C.serif, fontSize:18 }}>Krystle <em style={{ fontStyle:'italic', color:C.pink }}>&amp; Co</em></div>
+        <div style={{ fontSize:9, letterSpacing:'0.15em', textTransform:'uppercase', color:C.fgMuted }}>Waiver</div>
+      </div>
+      <div style={{ padding:'24px 20px' }}>
+        <h2 style={{ fontFamily:C.serif, fontSize:28, fontWeight:300, marginBottom:6 }}>Complete Your <em style={{ fontStyle:'italic', color:C.pink }}>Waiver</em></h2>
+        <p style={{ fontSize:12, color:C.fgMuted, marginBottom:24, lineHeight:1.7 }}>Required before your first appointment.</p>
+
+        <div style={{ marginBottom:20 }}>
+          <div style={{ fontSize:9, letterSpacing:'0.3em', textTransform:'uppercase', color:C.pink, marginBottom:12, paddingBottom:8, borderBottom:`1px solid ${C.border}` }}>Medical History</div>
+          {['I wear contact lenses','Eye surgery (LASIK etc.)','Dry eyes','Eye allergies','Currently pregnant'].map((l,i) => (
+            <div key={l} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 0', borderBottom:`1px solid ${C.border}22` }}>
+              <div style={{ width:16, height:16, border:`1px solid ${i===0?C.pink:C.border}`, background:i===0?C.pink:'transparent', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                {i===0 && <span style={{ color:C.bg, fontSize:10 }}>✓</span>}
+              </div>
+              <span style={{ fontSize:12, color:i===0?C.fg:C.fgMuted }}>{l}</span>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ marginBottom:20 }}>
+          <div style={{ fontSize:9, letterSpacing:'0.3em', textTransform:'uppercase', color:C.yellow, marginBottom:12, paddingBottom:8, borderBottom:`1px solid ${C.border}` }}>No Refund Policy</div>
+          <div style={{ background:C.bg3, border:`1px solid ${C.yellow}22`, padding:'12px 14px', fontSize:12, color:C.fgMuted, lineHeight:1.8, marginBottom:10 }}>
+            All sales are final. Cancellations within 24 hours forfeit the deposit in full.
+          </div>
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            <div style={{ width:16, height:16, border:`1px solid ${C.yellow}`, background:C.yellow, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+              <span style={{ color:C.bg, fontSize:10 }}>✓</span>
+            </div>
+            <span style={{ fontSize:12, color:C.fg }}>I agree to the No Refund Policy</span>
+          </div>
+        </div>
+
+        <div style={{ marginBottom:20 }}>
+          <div style={{ fontSize:9, letterSpacing:'0.3em', textTransform:'uppercase', color:C.pink, marginBottom:10 }}>Electronic Signature</div>
+          <div style={{ background:C.bg3, border:`2px solid ${C.pink}`, padding:'12px 14px', fontFamily:C.serif, fontSize:20, fontStyle:'italic', color:C.fg }}>Emma Rodriguez</div>
+        </div>
+
+        <div style={{ height:44, background:C.pink, display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, letterSpacing:'0.2em', textTransform:'uppercase', color:C.bg }}>
+          Save &amp; Sign Waiver
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BookingScreen() {
+  return (
+    <div style={{ background:C.bg, minHeight:'100%' }}>
+      <div style={{ borderBottom:`1px solid ${C.border}`, padding:'16px 20px', display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:50 }}>
+        <div style={{ fontFamily:C.serif, fontSize:18 }}>Krystle <em style={{ fontStyle:'italic', color:C.pink }}>&amp; Co</em></div>
+        <div style={{ fontSize:9, letterSpacing:'0.15em', textTransform:'uppercase', color:C.fgMuted }}>Ashland, MA</div>
+      </div>
+      <div style={{ padding:'24px 20px' }}>
+        {/* Step indicator */}
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:0, marginBottom:28 }}>
+          {['Service','Date','Info','Waiver','Review'].map((s,i) => (
+            <React.Fragment key={s}>
+              <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:4 }}>
+                <div style={{ width:26, height:26, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', background:i<1?C.green:i===1?C.pink:'transparent', border:`1px solid ${i<=1?'transparent':C.border}`, fontSize:10, color:i<=1?C.bg:C.fgMuted }}>
+                  {i<1?'✓':i+1}
+                </div>
+                <span style={{ fontSize:8, letterSpacing:'0.1em', textTransform:'uppercase', color:i===1?C.pink:C.fgMuted, whiteSpace:'nowrap' }}>{s}</span>
+              </div>
+              {i<4 && <div style={{ width:24, height:1, background:i<1?C.green:C.border, margin:'0 2px', marginBottom:16, flexShrink:0 }} />}
+            </React.Fragment>
+          ))}
+        </div>
+
+        <h2 style={{ fontFamily:C.serif, fontSize:28, fontWeight:300, marginBottom:8 }}>Pick a <em style={{ fontStyle:'italic', color:C.pink }}>date &amp; time</em></h2>
+        <p style={{ fontSize:12, color:C.fgMuted, marginBottom:20 }}>Hybrid Full Set · 120 min</p>
+
+        {/* Mini calendar */}
+        <div style={{ background:C.bg2, border:`1px solid ${C.border}`, marginBottom:20 }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 14px', borderBottom:`1px solid ${C.border}` }}>
+            <span style={{ fontSize:11, color:C.fgMuted }}>‹</span>
+            <span style={{ fontFamily:C.serif, fontSize:16 }}>April 2026</span>
+            <span style={{ fontSize:11, color:C.fgMuted }}>›</span>
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', padding:'8px' }}>
+            {['M','T','W','T','F','S','S'].map((d,i) => (
+              <div key={i} style={{ textAlign:'center', fontSize:9, color:C.fgMuted, padding:'4px 0' }}>{d}</div>
+            ))}
+            {Array.from({length:30},(_,i)=>i+1).map(d => (
+              <div key={d} style={{ textAlign:'center', padding:'6px 0', fontSize:12,
+                color: d===28?C.bg:d<26||[6,7,13,14,20,21,27].includes(d)?C.fgDim:C.fg,
+                background: d===28?C.pink:'transparent',
+                borderRadius: d===28?'50%':'0',
+                display:'flex', alignItems:'center', justifyContent:'center',
+                width:28, height:28, margin:'0 auto',
+              }}>{d}</div>
+            ))}
+          </div>
+        </div>
+
+        {/* Time slots */}
+        <div style={{ fontSize:9, letterSpacing:'0.2em', textTransform:'uppercase', color:C.pink, marginBottom:10 }}>Available Times · Tue Apr 28</div>
+        <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
+          {['9:00 AM','10:00 AM','11:00 AM','2:00 PM','3:00 PM'].map((t,i) => (
+            <div key={t} style={{ padding:'9px 16px', background:i===0?C.pink:C.bg2, border:`1px solid ${i===0?C.pink:C.border}`, fontSize:12, color:i===0?C.bg:C.fg }}>{t}</div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProfileScreen() {
+  return (
+    <div style={{ background:C.bg, minHeight:'100%' }}>
+      <div style={{ borderBottom:`1px solid ${C.border}`, padding:'16px 20px', display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:50 }}>
+        <div style={{ fontFamily:C.serif, fontSize:18 }}>Krystle <em style={{ fontStyle:'italic', color:C.pink }}>&amp; Co</em></div>
+        <button style={{ background:'none', border:`1px solid ${C.border}`, color:C.fgMuted, fontFamily:C.sans, fontSize:9, letterSpacing:'0.15em', textTransform:'uppercase', padding:'6px 12px', cursor:'pointer' }}>Sign Out</button>
+      </div>
+      <div style={{ padding:'24px 20px' }}>
+        {/* Avatar */}
+        <div style={{ display:'flex', alignItems:'center', gap:16, marginBottom:24 }}>
+          <div style={{ width:64, height:64, borderRadius:'50%', background:C.pink+'22', border:`1px solid ${C.pink}44`, display:'flex', alignItems:'center', justifyContent:'center', fontFamily:C.serif, fontSize:28, color:C.pink }}>E</div>
+          <div>
+            <div style={{ fontFamily:C.serif, fontSize:26, fontWeight:300 }}>Emma Rodriguez</div>
+            <div style={{ fontSize:11, color:C.fgMuted, marginTop:4 }}>emma@example.com</div>
+          </div>
+        </div>
+        <div style={{ background:C.bg2, border:`1px solid ${C.border}`, padding:'20px' }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+            <div style={{ fontSize:9, letterSpacing:'0.25em', textTransform:'uppercase', color:C.pink }}>Contact Info</div>
+            <div style={{ fontSize:9, letterSpacing:'0.12em', textTransform:'uppercase', color:C.fgMuted, border:`1px solid ${C.border}`, padding:'4px 10px', cursor:'pointer' }}>Edit</div>
+          </div>
+          {[['Name','Emma Rodriguez'],['Email','emma@example.com'],['Phone','508-555-0101'],['Birthday','Mar 15']].map(([l,v]) => (
+            <div key={l} style={{ display:'flex', justifyContent:'space-between', padding:'9px 0', borderBottom:`1px solid ${C.border}33`, fontSize:13 }}>
+              <span style={{ color:C.fgMuted }}>{l}</span><span>{v}</span>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ background:C.bg2, border:`1px solid ${C.border}`, padding:'16px 20px', marginTop:12 }}>
+          <div style={{ fontSize:9, letterSpacing:'0.25em', textTransform:'uppercase', color:C.pink, marginBottom:10 }}>Password</div>
+          <div style={{ fontSize:13, color:C.fgMuted }}>••••••••</div>
+          <div style={{ fontSize:11, color:C.pink, marginTop:10, cursor:'pointer' }}>Change password →</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const SCREEN_COMPONENTS = {
+  login: LoginScreen,
+  portal: PortalHome,
+  waiver: WaiverScreen,
+  booking: BookingScreen,
+  profile: ProfileScreen,
+};
+
+function App() {
+  const [screen, setScreen] = useState('portal');
+  const ScreenComp = SCREEN_COMPONENTS[screen];
+
+  return (
+    <div style={{ minHeight:'100vh', background:'#0d0b0c', display:'flex', flexDirection:'column', alignItems:'center', padding:'40px 24px 60px' }}>
+      {/* Header */}
+      <div style={{ textAlign:'center', marginBottom:40 }}>
+        <div style={{ fontFamily:"'Cormorant Garamond',Georgia,serif", fontSize:28, color:'#f0ece8', marginBottom:6 }}>
+          Krystle <em style={{ fontStyle:'italic', color:'oklch(0.72 0.14 352)' }}>&amp; Co</em>
+        </div>
+        <div style={{ fontSize:9, letterSpacing:'0.3em', textTransform:'uppercase', color:'rgba(240,236,232,0.4)' }}>Client PWA Preview</div>
+      </div>
+
+      {/* Screen selector */}
+      <div style={{ display:'flex', gap:6, marginBottom:40, flexWrap:'wrap', justifyContent:'center' }}>
+        {SCREENS.map(s => (
+          <button key={s.id} onClick={() => setScreen(s.id)} style={{
+            padding:'8px 18px', fontSize:10, letterSpacing:'0.12em', textTransform:'uppercase', cursor:'pointer',
+            background: screen===s.id ? 'oklch(0.72 0.14 352)' : 'transparent',
+            border:`1px solid ${screen===s.id ? 'transparent' : 'rgba(255,255,255,0.1)'}`,
+            color: screen===s.id ? '#0d0b0c' : 'rgba(240,236,232,0.5)',
+            transition:'all 0.2s',
+          }}>{s.label}</button>
+        ))}
+      </div>
+
+      {/* Phone frame */}
+      <div style={{ display:'flex', justifyContent:'center', alignItems:'flex-start' }}>
+        <IOSDevice dark={true} width={390} height={844}>
+          <div style={{ width:'100%', height:'100%', overflowY:'auto', background:'#0c0a0b' }}>
+            <ScreenComp />
+          </div>
+        </IOSDevice>
+      </div>
+
+      {/* Description */}
+      <div style={{ marginTop:28, textAlign:'center', maxWidth:360 }}>
+        <div style={{ fontSize:13, color:'rgba(240,236,232,0.7)', lineHeight:1.7 }}>
+          {SCREENS.find(s => s.id === screen)?.desc}
+        </div>
+        <div style={{ marginTop:16, fontSize:11, color:'rgba(240,236,232,0.3)', letterSpacing:'0.1em' }}>
+          Clients add to Home Screen for a native app feel · Works offline via service worker
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
