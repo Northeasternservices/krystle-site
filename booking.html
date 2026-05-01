@@ -370,11 +370,37 @@ function ReviewStep({ service, date, time, info, depositPercent, onConfirm, load
 
   return (
     <div>
-    
+      <h2 style={{ fontFamily: C.serif, fontSize: 32, fontWeight: 300, marginBottom: 8 }}>
+        Review <em style={{ fontStyle: 'italic', color: C.pink }}>&amp; confirm</em>
+      </h2>
+      <p style={{ fontSize: 13, color: C.fgMuted, marginBottom: 32 }}>Please review your booking before paying.</p>
 
-... [OUTPUT TRUNCATED - 1918 chars omitted out of 51918 total] ...
-
-  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+      {/* Summary card */}
+      <div style={{ background: C.bg2, border: `1px solid ${C.border}`, marginBottom: 24 }}>
+        <div style={{ padding: '20px 24px', borderBottom: `1px solid ${C.border}` }}>
+          <div style={{ fontSize: 9, letterSpacing: '0.25em', textTransform: 'uppercase', color: C.pink, marginBottom: 12 }}>Appointment</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            {[
+              ['Service', service.name],
+              ['Duration', `${service.duration} min`],
+              ['Date', DateUtil.format(date, 'long')],
+              ['Time', DateUtil.formatTime(time)],
+            ].map(([label, val]) => (
+              <div key={label}>
+                <div style={{ fontSize: 10, letterSpacing: '0.15em', textTransform: 'uppercase', color: C.fgMuted, marginBottom: 4 }}>{label}</div>
+                <div style={{ fontSize: 14 }}>{val}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{ padding: '20px 24px', borderBottom: `1px solid ${C.border}` }}>
+          <div style={{ fontSize: 9, letterSpacing: '0.25em', textTransform: 'uppercase', color: C.pink, marginBottom: 12 }}>Client</div>
+          <div style={{ fontSize: 14, marginBottom: 4 }}>{info.firstName} {info.lastName}</div>
+          <div style={{ fontSize: 12, color: C.fgMuted }}>{info.email} · {info.phone}</div>
+        </div>
+        <div style={{ padding: '20px 24px' }}>
+          <div style={{ fontSize: 9, letterSpacing: '0.25em', textTransform: 'uppercase', color: C.pink, marginBottom: 16 }}>Payment</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
             <span style={{ color: C.fgMuted, fontSize: 13 }}>Service Total</span>
             <span style={{ fontFamily: C.serif, fontSize: 18 }}>${service.price}</span>
           </div>
